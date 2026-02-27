@@ -1,0 +1,13 @@
+{
+  "name": "arc-hack",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter frontend dev",
+    "build": "pnpm --filter frontend build",
+    "forge:test": "pnpm --filter contracts test",
+    "forge:build": "pnpm --filter contracts build"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
