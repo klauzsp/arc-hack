@@ -30,6 +30,7 @@ const recipientSchema = zod_1.z.object({
     destinationWalletAddress: zod_1.z.string().nullable().optional(),
     scheduleId: zod_1.z.string().nullable().optional(),
     timeTrackingMode: zod_1.z.enum(["check_in_out", "schedule_based"]),
+    employmentStartDate: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     active: zod_1.z.boolean().optional(),
 });
 const scheduleSchema = zod_1.z.object({
@@ -71,6 +72,9 @@ const clockInSchema = zod_1.z.object({
 const clockOutSchema = zod_1.z.object({
     clockOut: zod_1.z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
+const withdrawSchema = zod_1.z.object({
+    amount: zod_1.z.number().positive().optional(),
+});
 async function getSessionOrThrow(request, authService, requiredRole) {
     const authorization = request.headers.authorization;
     if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
@@ -97,7 +101,12 @@ function buildApp(config) {
     const authService = new authService_1.AuthService(repository, config);
     const jobService = new jobService_1.JobService(payrollService);
     const app = (0, fastify_1.default)({ logger: false });
-    void app.register(cors_1.default, { origin: config.corsOrigin, credentials: true });
+    void app.register(cors_1.default, {
+        origin: config.corsOrigin,
+        credentials: true,
+        methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+    });
     app.setErrorHandler((error, _request, reply) => {
         if (error instanceof HttpError) {
             reply.status(error.statusCode).send({ error: error.message });
@@ -211,6 +220,10 @@ function buildApp(config) {
     app.get("/me/earnings", async (request) => {
         const session = await getSessionOrThrow(request, authService, "employee");
         return payrollService.getMyEarnings(session.address);
+    });
+    app.post("/me/withdraw", async (request) => {
+        const session = await getSessionOrThrow(request, authService, "employee");
+        return payrollService.withdrawAvailableEarnings(session.address, withdrawSchema.parse(request.body ?? {}));
     });
     app.get("/employees/:id", async (request) => {
         await getSessionOrThrow(request, authService, "admin");

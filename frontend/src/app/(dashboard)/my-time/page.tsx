@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
@@ -7,6 +8,16 @@ import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function addHours(clock: string, hours: number) {
+  const [baseHours, baseMinutes] = clock.split(":").map(Number);
+  const totalMinutes = baseHours * 60 + baseMinutes + Math.round(hours * 60);
+  const nextHours = Math.floor(totalMinutes / 60)
+    .toString()
+    .padStart(2, "0");
+  const nextMinutes = (totalMinutes % 60).toString().padStart(2, "0");
+  return `${nextHours}:${nextMinutes}`;
+}
 
 function hoursWorked(clockIn: string, clockOut: string) {
   const [inHours, inMinutes] = clockIn.split(":").map(Number);
@@ -47,6 +58,11 @@ export default function MyTimePage() {
     loading,
     error,
   } = usePayroll();
+  const [clockInTime, setClockInTime] = useState("09:00");
+  const [clockOutTime, setClockOutTime] = useState("17:00");
+  const [timeMessage, setTimeMessage] = useState<string | null>(null);
+  const [timeError, setTimeError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<"clock_in" | "clock_out" | null>(null);
 
   const connectedRecipient = getRecipientByWallet(address);
   const isAdmin = role === "admin";
@@ -56,15 +72,25 @@ export default function MyTimePage() {
   const recipientEntries = recipient ? getRecipientTimeEntries(recipient.id) : [];
   const isCheckInOut = recipient?.timeTrackingMode === "check_in_out";
   const activeSession = recipient ? activeSessions[recipient.id] : undefined;
+  const canManageOwnTime = role === "employee" && connectedRecipient?.id === recipient?.id;
   const currentPeriodEntries = recipientEntries.filter(
     (entry) => entry.date >= currentPeriodStart && entry.date <= today,
   );
   const totalMinutes = currentPeriodEntries.reduce((total, entry) => {
+    if (!entry.clockOut) return total;
     const [inHours, inMinutes] = entry.clockIn.split(":").map(Number);
     const [outHours, outMinutes] = entry.clockOut.split(":").map(Number);
     return total + (outHours * 60 + outMinutes - (inHours * 60 + inMinutes));
   }, 0);
   const totalHours = (totalMinutes / 60).toFixed(1);
+
+  useEffect(() => {
+    if (!recipient) return;
+    setTimeMessage(null);
+    setTimeError(null);
+    setClockInTime(activeSession?.clockIn ?? "09:00");
+    setClockOutTime(activeSession ? addHours(activeSession.clockIn, schedule.hoursPerDay || 8) : "17:00");
+  }, [recipient?.id, activeSession?.clockIn, schedule.hoursPerDay]);
 
   if (loading && !metrics) {
     return <div className="text-sm text-slate-500">Loading time data…</div>;
@@ -77,6 +103,34 @@ export default function MyTimePage() {
       </Card>
     );
   }
+
+  const handleClockIn = async () => {
+    setTimeMessage(null);
+    setTimeError(null);
+    setIsSubmitting("clock_in");
+    try {
+      await clockIn(recipient.id, { clockIn: clockInTime });
+      setTimeMessage(`Clocked in at ${clockInTime}.`);
+    } catch (clockActionError) {
+      setTimeError(clockActionError instanceof Error ? clockActionError.message : "Clock-in failed.");
+    } finally {
+      setIsSubmitting(null);
+    }
+  };
+
+  const handleClockOut = async () => {
+    setTimeMessage(null);
+    setTimeError(null);
+    setIsSubmitting("clock_out");
+    try {
+      await clockOut(recipient.id, { clockOut: clockOutTime });
+      setTimeMessage(`Clocked out at ${clockOutTime}.`);
+    } catch (clockActionError) {
+      setTimeError(clockActionError instanceof Error ? clockActionError.message : "Clock-out failed.");
+    } finally {
+      setIsSubmitting(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -107,10 +161,22 @@ export default function MyTimePage() {
         )}
       </div>
 
+      {timeMessage && (
+        <Card className="border-emerald-200 bg-emerald-50/40 p-4">
+          <p className="text-sm font-semibold text-emerald-800">{timeMessage}</p>
+        </Card>
+      )}
+
+      {timeError && (
+        <Card className="border-red-200 bg-red-50/40 p-4">
+          <p className="text-sm font-semibold text-red-800">{timeError}</p>
+        </Card>
+      )}
+
       {isCheckInOut ? (
         <>
           <Card className="p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-slate-900">Today's Session</p>
                 <p className="mt-0.5 text-xs text-slate-500">{formatDate(today)}</p>
@@ -120,31 +186,64 @@ export default function MyTimePage() {
                   </p>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex min-w-[18rem] flex-col gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Clock In Time</span>
+                    <input
+                      type="time"
+                      value={clockInTime}
+                      disabled={!!activeSession || !canManageOwnTime}
+                      onChange={(event) => setClockInTime(event.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Clock Out Time</span>
+                    <input
+                      type="time"
+                      value={clockOutTime}
+                      disabled={!activeSession || !canManageOwnTime}
+                      onChange={(event) => setClockOutTime(event.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                    />
+                  </label>
+                </div>
+                <div className="flex gap-2">
                 <button
                   type="button"
-                  disabled={!!activeSession}
-                  onClick={() => void clockIn(recipient.id)}
+                  disabled={!!activeSession || !canManageOwnTime || isSubmitting !== null}
+                  onClick={() => {
+                    void handleClockIn();
+                  }}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
                   </svg>
-                  Clock In
+                  {isSubmitting === "clock_in" ? "Clocking In…" : "Clock In"}
                 </button>
                 <button
                   type="button"
-                  disabled={!activeSession}
-                  onClick={() => void clockOut(recipient.id)}
+                  disabled={!activeSession || !canManageOwnTime || isSubmitting !== null}
+                  onClick={() => {
+                    void handleClockOut();
+                  }}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
                   </svg>
-                  Clock Out
+                  {isSubmitting === "clock_out" ? "Clocking Out…" : "Clock Out"}
                 </button>
               </div>
+              {!canManageOwnTime && (
+                <p className="text-xs text-slate-500">
+                  Sign in as this employee wallet to submit live time entries.
+                </p>
+              )}
+            </div>
             </div>
           </Card>
 
@@ -191,12 +290,12 @@ export default function MyTimePage() {
                     <tr key={entry.id} className="transition-colors hover:bg-slate-50/50">
                       <td className="whitespace-nowrap px-5 py-3 text-sm font-medium text-slate-900">{entry.date}</td>
                       <td className="whitespace-nowrap px-5 py-3 text-sm text-slate-600">{entry.clockIn}</td>
-                      <td className="whitespace-nowrap px-5 py-3 text-sm text-slate-600">{entry.clockOut}</td>
+                      <td className="whitespace-nowrap px-5 py-3 text-sm text-slate-600">{entry.clockOut || "--"}</td>
                       <td className="whitespace-nowrap px-5 py-3 text-right text-sm font-medium text-slate-900">
-                        {hoursWorked(entry.clockIn, entry.clockOut)}
+                        {entry.clockOut ? hoursWorked(entry.clockIn, entry.clockOut) : "--"}
                       </td>
                       <td className="whitespace-nowrap px-5 py-3 text-right">
-                        <Badge variant="success">Approved</Badge>
+                        {entry.clockOut ? <Badge variant="success">Approved</Badge> : <Badge variant="warning">Active</Badge>}
                       </td>
                     </tr>
                   ))}

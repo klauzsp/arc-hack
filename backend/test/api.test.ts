@@ -117,6 +117,13 @@ test("admin can deactivate a recipient from the live recipient list", async () =
   const recipients = recipientsResponse.json() as Array<{ id: string }>;
   assert.equal(recipients.some((recipient) => recipient.id === employee.id), false);
 
+  const deletedEmployeeMe = await app.inject({
+    method: "GET",
+    url: "/me",
+    headers: { authorization: "Bearer employee-token" },
+  });
+  assert.equal(deletedEmployeeMe.statusCode, 401);
+
   await app.close();
 });
 
@@ -140,6 +147,67 @@ test("employee earnings and time routes are scoped to the signed-in wallet", asy
   });
   assert.equal(scheduleResponse.statusCode, 200);
   assert.ok(scheduleResponse.json().workingDays.length >= 1);
+
+  await app.close();
+});
+
+test("employee can use custom clock times and withdraw earned wages from treasury", async () => {
+  const { app, repository } = createTestHarness();
+  const timeEmployee = repository.listEmployees().find((employee) => employee.timeTrackingMode === "check_in_out");
+  assert.ok(timeEmployee);
+
+  repository.createSession({
+    token: "time-employee-token",
+    address: timeEmployee.walletAddress,
+    role: "employee",
+    employeeId: timeEmployee.id,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+  });
+
+  const beforeEarnings = await app.inject({
+    method: "GET",
+    url: "/me/earnings",
+    headers: { authorization: "Bearer time-employee-token" },
+  });
+  assert.equal(beforeEarnings.statusCode, 200);
+  const beforeAvailable = beforeEarnings.json().availableToWithdraw as number;
+  assert.ok(beforeAvailable > 0);
+
+  const clockInResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-entries/clock-in",
+    headers: { authorization: "Bearer time-employee-token" },
+    payload: { date: "2026-02-28", clockIn: "10:15" },
+  });
+  assert.equal(clockInResponse.statusCode, 200);
+  assert.equal(clockInResponse.json().clockIn, "10:15");
+
+  const clockOutResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-entries/clock-out",
+    headers: { authorization: "Bearer time-employee-token" },
+    payload: { clockOut: "18:05" },
+  });
+  assert.equal(clockOutResponse.statusCode, 200);
+  assert.equal(clockOutResponse.json().clockOut, "18:05");
+
+  const withdrawResponse = await app.inject({
+    method: "POST",
+    url: "/me/withdraw",
+    headers: { authorization: "Bearer time-employee-token" },
+    payload: {},
+  });
+  assert.equal(withdrawResponse.statusCode, 200);
+  assert.ok(withdrawResponse.json().amount > 0);
+  assert.equal(typeof withdrawResponse.json().txHash, "string");
+
+  const afterEarnings = await app.inject({
+    method: "GET",
+    url: "/me/earnings",
+    headers: { authorization: "Bearer time-employee-token" },
+  });
+  assert.equal(afterEarnings.statusCode, 200);
+  assert.ok(afterEarnings.json().availableToWithdraw < beforeAvailable);
 
   await app.close();
 });

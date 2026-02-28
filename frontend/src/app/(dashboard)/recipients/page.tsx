@@ -6,7 +6,9 @@ import type { PayType, Recipient, TimeTrackingMode } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 
-type RecipientFormState = Omit<Recipient, "id">;
+type RecipientFormState = Omit<Recipient, "id" | "employmentStartDate"> & {
+  employmentStartDate: string;
+};
 
 const emptyRecipient: RecipientFormState = {
   walletAddress: "",
@@ -16,6 +18,7 @@ const emptyRecipient: RecipientFormState = {
   chainPreference: "Arc",
   timeTrackingMode: "schedule_based",
   scheduleId: "s-1",
+  employmentStartDate: "",
 };
 
 function payTypeVariant(payType: PayType): "info" | "default" | "warning" {
@@ -82,6 +85,7 @@ export default function RecipientsPage() {
       chainPreference: recipient.chainPreference,
       timeTrackingMode: recipient.timeTrackingMode,
       scheduleId: recipient.scheduleId,
+      employmentStartDate: recipient.employmentStartDate ?? "",
     });
     setShowForm(true);
   };
@@ -91,14 +95,20 @@ export default function RecipientsPage() {
     setIsSaving(true);
     setDeleteError(null);
     try {
+      const payload = {
+        ...formState,
+        employmentStartDate: formState.employmentStartDate || null,
+      };
       if (editingId) {
-        await updateRecipient(editingId, formState);
+        await updateRecipient(editingId, payload);
         setMessage("Recipient updated.");
       } else {
-        await addRecipient(formState);
+        await addRecipient(payload);
         setMessage("Recipient added.");
       }
       resetForm();
+    } catch (saveError) {
+      setDeleteError(saveError instanceof Error ? saveError.message : "Failed to save recipient.");
     } finally {
       setIsSaving(false);
     }
@@ -247,7 +257,17 @@ export default function RecipientsPage() {
                 </option>
               ))}
             </select>
+            <input
+              type="date"
+              value={formState.employmentStartDate}
+              onChange={(event) => setFormState({ ...formState, employmentStartDate: event.target.value })}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
           </div>
+
+          <p className="mt-3 text-xs text-slate-500">
+            Worked since controls how far back the employee accrues earnings for testing and live withdrawals.
+          </p>
 
           <div className="mt-4 flex gap-2">
             <button
@@ -287,7 +307,12 @@ export default function RecipientsPage() {
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
                           {recipient.name.split(" ").map((part) => part[0]).join("")}
                         </div>
-                        <span className="text-sm font-medium text-slate-900">{recipient.name}</span>
+                        <div>
+                          <span className="text-sm font-medium text-slate-900">{recipient.name}</span>
+                          <p className="text-xs text-slate-400">
+                            Worked since {recipient.employmentStartDate ?? "not set"}
+                          </p>
+                        </div>
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-slate-400">

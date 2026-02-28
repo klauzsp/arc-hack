@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { api, type DashboardSummaryResponse, type EarningsResponse, type PolicyResponse, type TreasuryResponse } from "@/lib/api";
+import { api, type DashboardSummaryResponse, type EarningsResponse, type PolicyResponse, type TreasuryResponse, type WithdrawResponse } from "@/lib/api";
 import type { PayRun, Recipient, Schedule, TimeEntry } from "@/lib/types";
 import { currentPeriodEnd, currentPeriodStart, yearStart } from "@/lib/payPeriods";
 import { useAuthSession } from "./AuthProvider";
@@ -46,8 +46,9 @@ type MockPayrollContextValue = {
   approvePayRun: (payRunId: string) => Promise<PayRun>;
   executePayRun: (payRunId: string) => Promise<PayRun>;
   finalizePayRun: (payRunId: string) => Promise<PayRun>;
-  clockIn: (recipientId: string) => Promise<void>;
-  clockOut: (recipientId: string) => Promise<void>;
+  clockIn: (recipientId: string, input?: { date?: string; clockIn?: string }) => Promise<void>;
+  clockOut: (recipientId: string, input?: { clockOut?: string }) => Promise<void>;
+  withdrawNow: (input?: { amount?: number }) => Promise<WithdrawResponse>;
   createPolicy: (input: { name: string; type: "payday" | "treasury_threshold" | "manual"; status?: "active" | "paused"; config?: Record<string, unknown> }) => Promise<PolicySummary>;
   updatePolicy: (policyId: string, input: Partial<{ name: string; type: "payday" | "treasury_threshold" | "manual"; status: "active" | "paused"; config: Record<string, unknown> }>) => Promise<PolicySummary>;
   updateAutoPolicy: (input: Partial<{ autoRebalanceEnabled: boolean; autoRedeemEnabled: boolean; rebalanceThreshold: number; payoutNoticeHours: number }>) => Promise<void>;
@@ -196,7 +197,11 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
       setPolicies(policiesResponse);
       setRecipients(recipientsResponse);
       setPayRuns(payRunsResponse);
-      setPreviewEmployeeId((current) => current || employee?.id || recipientsResponse[0]?.id || "");
+      setPreviewEmployeeId((current) =>
+        recipientsResponse.some((recipient) => recipient.id === current)
+          ? current
+          : employee?.id || recipientsResponse[0]?.id || "",
+      );
 
       await hydrateEmployeeData(recipientsResponse, token, role);
     } catch (refreshError) {
@@ -273,20 +278,29 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
     return payRun;
   };
 
-  const clockIn = async (recipientId: string) => {
+  const clockIn = async (recipientId: string, input?: { date?: string; clockIn?: string }) => {
     if (!token || role !== "employee" || employee?.id !== recipientId) {
       throw new Error("Only the signed-in employee can clock in.");
     }
-    await api.clockIn(token);
+    await api.clockIn(token, input);
     await refresh();
   };
 
-  const clockOut = async (recipientId: string) => {
+  const clockOut = async (recipientId: string, input?: { clockOut?: string }) => {
     if (!token || role !== "employee" || employee?.id !== recipientId) {
       throw new Error("Only the signed-in employee can clock out.");
     }
-    await api.clockOut(token);
+    await api.clockOut(token, input);
     await refresh();
+  };
+
+  const withdrawNow = async (input?: { amount?: number }) => {
+    if (!token || role !== "employee" || !employee) {
+      throw new Error("Only the signed-in employee can withdraw earnings.");
+    }
+    const response = await api.withdrawNow(token, input);
+    await refresh();
+    return response;
   };
 
   const createPolicy = async (input: {
@@ -354,6 +368,7 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
         finalizePayRun,
         clockIn,
         clockOut,
+        withdrawNow,
         createPolicy,
         updatePolicy,
         updateAutoPolicy,

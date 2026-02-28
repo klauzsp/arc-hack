@@ -20,13 +20,14 @@ type RequestOptions = {
 };
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const hasBody = options.body !== undefined;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      "Content-Type": "application/json",
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
     },
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: hasBody ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });
 
@@ -137,6 +138,13 @@ export interface PolicyResponse {
   lastRunAt: string | null;
 }
 
+export interface WithdrawResponse {
+  ok: boolean;
+  txHash: string;
+  amount: number;
+  walletAddress: string;
+}
+
 export type RecipientPayload = Omit<Recipient, "id">;
 
 export const api = {
@@ -187,6 +195,12 @@ export const api = {
       body: payload,
     }),
   getMyEarnings: (token: string) => request<EarningsResponse>("/me/earnings", { token }),
+  withdrawNow: (token: string, payload?: { amount?: number }) =>
+    request<WithdrawResponse>("/me/withdraw", {
+      method: "POST",
+      token,
+      body: payload ?? {},
+    }),
   getEmployeeEarnings: (token: string, employeeId: string) =>
     request<EarningsResponse>(`/employees/${employeeId}/earnings`, { token }),
   getMyTimeEntries: (token: string) => request<Array<TimeEntry & { clockOut?: string | null }>>("/me/time-entries", { token }),

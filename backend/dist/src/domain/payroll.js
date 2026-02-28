@@ -27,6 +27,12 @@ const HOURLY_SHIFT_PATTERNS = [
 function roundCents(value) {
     return Math.round(value);
 }
+function maxIsoDate(left, right) {
+    return left > right ? left : right;
+}
+function overlaps(start, end, otherStart, otherEnd) {
+    return start <= otherEnd && otherStart <= end;
+}
 function dollarsFromCents(value) {
     return Number((value / 100).toFixed(2));
 }
@@ -63,6 +69,15 @@ function countScheduledDays(schedule, start, end, holidaySet) {
     }
     return total;
 }
+function sumActualHoursByDate(employeeId, start, end, timeEntries) {
+    const totals = new Map();
+    for (const entry of timeEntries) {
+        if (entry.employeeId !== employeeId || !entry.clockOut || entry.date < start || entry.date > end)
+            continue;
+        totals.set(entry.date, (totals.get(entry.date) ?? 0) + (0, dates_1.hoursBetween)(entry.clockIn, entry.clockOut));
+    }
+    return totals;
+}
 function buildHourlyEntries(employeeId, schedule, start, end, holidays, offset) {
     const holidaySet = new Set(holidays.map((holiday) => holiday.date));
     const entries = [];
@@ -89,33 +104,61 @@ function buildHourlyEntries(employeeId, schedule, start, end, holidays, offset) 
     }
     return entries;
 }
-function periodStats(employee, start, end, schedules, holidays, timeEntries, mode) {
-    const holidaySet = new Set(holidays.map((holiday) => holiday.date));
+function periodStats(employee, start, end, schedules, holidays, timeEntries) {
     const schedule = getSchedule(employee.scheduleId, schedules);
-    const scheduledDays = countScheduledDays(schedule, start, end, holidaySet);
-    const scheduledHours = scheduledDays * schedule.hoursPerDay;
-    const relevantEntries = timeEntries.filter((entry) => entry.employeeId === employee.id &&
-        entry.date >= start &&
-        entry.date <= end &&
-        entry.clockOut);
-    const actualHours = relevantEntries.reduce((total, entry) => total + (0, dates_1.hoursBetween)(entry.clockIn, entry.clockOut), 0);
-    const actualDays = new Set(relevantEntries.map((entry) => entry.date)).size;
-    const useForecast = mode === "forecast";
-    const hoursWorked = useForecast
-        ? actualHours || scheduledHours
-        : employee.timeTrackingMode === "check_in_out"
-            ? actualHours
-            : scheduledHours;
-    const daysWorked = useForecast
-        ? actualDays || scheduledDays
-        : employee.timeTrackingMode === "check_in_out"
-            ? actualDays
-            : scheduledDays;
+    const effectiveStart = employee.employmentStartDate
+        ? maxIsoDate(employee.employmentStartDate, start)
+        : start;
+    if (effectiveStart > end) {
+        return {
+            daysWorked: 0,
+            hoursWorked: 0,
+            holidayCount: 0,
+            scheduleHoursPerDay: schedule.hoursPerDay,
+        };
+    }
+    const holidaySet = new Set(holidays.map((holiday) => holiday.date));
+    const actualHoursByDate = sumActualHoursByDate(employee.id, effectiveStart, end, timeEntries);
+    const scheduledDays = countScheduledDays(schedule, effectiveStart, end, holidaySet);
+    let hoursWorked = 0;
+    let daysWorked = 0;
+    const scheduledDates = new Set();
+    for (let cursor = effectiveStart; cursor <= end; cursor = (0, dates_1.addDays)(cursor, 1)) {
+        const dayOfWeek = (0, dates_1.parseIsoDate)(cursor).getUTCDay();
+        const isScheduledWorkDay = schedule.workingDays.includes(dayOfWeek) && !holidaySet.has(cursor);
+        if (!isScheduledWorkDay)
+            continue;
+        scheduledDates.add(cursor);
+        if (employee.timeTrackingMode === "schedule_based") {
+            daysWorked += 1;
+            hoursWorked += schedule.hoursPerDay;
+            continue;
+        }
+        const actualHours = actualHoursByDate.get(cursor);
+        if (typeof actualHours === "number") {
+            daysWorked += 1;
+            hoursWorked += actualHours;
+        }
+        else {
+            // For testing/live previews, accrued payroll falls back to the assigned schedule when no entry exists yet.
+            daysWorked += 1;
+            hoursWorked += schedule.hoursPerDay;
+        }
+    }
+    if (employee.timeTrackingMode === "check_in_out") {
+        for (const [date, actualHours] of actualHoursByDate.entries()) {
+            if (scheduledDates.has(date))
+                continue;
+            daysWorked += 1;
+            hoursWorked += actualHours;
+        }
+    }
     return {
         daysWorked,
         hoursWorked,
-        holidayCount: countHolidays(start, end, holidaySet),
+        holidayCount: countHolidays(effectiveStart, end, holidaySet),
         scheduleHoursPerDay: schedule.hoursPerDay,
+        scheduledDays,
     };
 }
 function earningsForStats(employee, stats) {
@@ -125,15 +168,24 @@ function earningsForStats(employee, stats) {
         return roundCents(employee.rateCents * stats.daysWorked);
     return roundCents((employee.rateCents / dates_1.WORKING_DAYS_IN_YEAR) * stats.daysWorked);
 }
-function calculateRecipientMetrics(employee, payRuns, payRunItems, schedules, holidays, timeEntries, today) {
+function calculateRecipientMetrics(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, today) {
     const { periodStart, periodEnd } = (0, dates_1.currentSemimonthlyPeriod)(today);
-    const currentStats = periodStats(employee, periodStart, periodEnd, schedules, holidays, timeEntries, "actual");
-    const ytdStats = periodStats(employee, (0, dates_1.yearStart)(today), today, schedules, holidays, timeEntries, "actual");
-    const totalPaidCents = payRuns
-        .filter((payRun) => payRun.status === "executed")
-        .flatMap((payRun) => payRunItems.filter((item) => item.payRunId === payRun.id))
-        .filter((item) => item.employeeId === employee.id)
-        .reduce((total, item) => total + item.amountCents, 0);
+    const currentStats = periodStats(employee, periodStart, today < periodEnd ? today : periodEnd, schedules, holidays, timeEntries);
+    const ytdWindowStart = (0, dates_1.yearStart)(today);
+    const ytdStats = periodStats(employee, ytdWindowStart, today, schedules, holidays, timeEntries);
+    const paidPayRunIds = new Set(payRuns
+        .filter((payRun) => overlaps(payRun.periodStart, payRun.periodEnd, ytdWindowStart, today))
+        .filter((payRun) => payRun.status === "executed" || payRun.status === "processing")
+        .map((payRun) => payRun.id));
+    const totalPaidCents = payRunItems
+        .filter((item) => item.employeeId === employee.id && paidPayRunIds.has(item.payRunId))
+        .filter((item) => item.status !== "failed")
+        .reduce((total, item) => total + item.amountCents, 0) +
+        withdrawals
+            .filter((withdrawal) => withdrawal.employeeId === employee.id)
+            .filter((withdrawal) => withdrawal.status === "paid" || withdrawal.status === "processing")
+            .filter((withdrawal) => overlaps(withdrawal.periodStart, withdrawal.periodEnd, ytdWindowStart, today))
+            .reduce((total, withdrawal) => total + withdrawal.amountCents, 0);
     const currentPeriodEarnedCents = earningsForStats(employee, currentStats);
     const ytdEarnedCents = earningsForStats(employee, ytdStats);
     return {
@@ -150,11 +202,25 @@ function calculateRecipientMetrics(employee, payRuns, payRunItems, schedules, ho
         scheduleHoursPerDay: currentStats.scheduleHoursPerDay,
     };
 }
-function buildPayRunItemsPreview(employees, schedules, holidays, timeEntries, periodStart, periodEnd, today, arcChainId) {
+function buildPayRunItemsPreview(employees, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, periodStart, periodEnd, today, arcChainId) {
     const isForecast = periodStart > today;
+    const settledPayRunIds = new Set(payRuns
+        .filter((payRun) => overlaps(payRun.periodStart, payRun.periodEnd, periodStart, periodEnd))
+        .filter((payRun) => payRun.status === "executed" || payRun.status === "processing")
+        .map((payRun) => payRun.id));
     return employees.map((employee) => {
-        const stats = periodStats(employee, periodStart, periodEnd, schedules, holidays, timeEntries, isForecast ? "forecast" : "actual");
-        const amountCents = earningsForStats(employee, stats);
+        const stats = periodStats(employee, periodStart, periodEnd, schedules, holidays, timeEntries);
+        const earnedCents = earningsForStats(employee, stats);
+        const alreadyPaidCents = payRunItems
+            .filter((item) => item.employeeId === employee.id && settledPayRunIds.has(item.payRunId))
+            .filter((item) => item.status !== "failed")
+            .reduce((total, item) => total + item.amountCents, 0) +
+            withdrawals
+                .filter((withdrawal) => withdrawal.employeeId === employee.id)
+                .filter((withdrawal) => withdrawal.status === "paid" || withdrawal.status === "processing")
+                .filter((withdrawal) => overlaps(withdrawal.periodStart, withdrawal.periodEnd, periodStart, periodEnd))
+                .reduce((total, withdrawal) => total + withdrawal.amountCents, 0);
+        const amountCents = Math.max(earnedCents - alreadyPaidCents, 0);
         return {
             employeeId: employee.id,
             recipientWalletAddress: employee.destinationWalletAddress ?? employee.walletAddress,

@@ -40,6 +40,7 @@ export class ChainService {
   private readonly coreAbi = parseAbi([
     "function treasuryBalance() view returns (uint256)",
     "function withdraw(address to, uint256 amount)",
+    "function transferPayroll(address recipient, uint256 amount)",
   ]);
 
   private readonly payRunAbi = parseAbi([
@@ -181,6 +182,23 @@ export class ChainService {
     await this.publicClient?.waitForTransactionReceipt({ hash: txHash });
 
     return { onChainId, txHash };
+  }
+
+  async transferPayroll(recipient: `0x${string}`, amountCents: number) {
+    if (this.config.chainMode !== "live" || !this.walletClient || !this.config.liveChain) {
+      return createMockHash(`withdraw-${recipient}-${amountCents}`);
+    }
+
+    const txHash = await this.walletClient.writeContract({
+      chain: undefined,
+      address: this.config.liveChain.coreAddress,
+      abi: this.coreAbi,
+      functionName: "transferPayroll",
+      args: [recipient, toUsdcBaseUnits(amountCents)],
+    });
+    await this.publicClient?.waitForTransactionReceipt({ hash: txHash });
+
+    return txHash;
   }
 
   async finalizePayRun(payRun: PayRunRecord) {

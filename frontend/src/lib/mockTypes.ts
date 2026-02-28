@@ -31,6 +31,7 @@ export interface Recipient {
   destinationWalletAddress?: string | null;
   scheduleId?: string;
   timeTrackingMode: TimeTrackingMode;
+  employmentStartDate?: string | null;
   availableToWithdraw?: number;
   active?: boolean;
 }

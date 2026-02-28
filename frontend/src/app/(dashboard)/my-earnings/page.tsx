@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useAccount } from "wagmi";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
@@ -45,14 +46,19 @@ export default function MyEarningsPage() {
     getRecipientByWallet,
     getRecipientById,
     getRecipientMetrics,
+    withdrawNow,
     loading,
     error,
   } = usePayroll();
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawMessage, setWithdrawMessage] = useState<string | null>(null);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   const connectedRecipient = getRecipientByWallet(address);
   const isAdmin = role === "admin";
   const recipient = connectedRecipient ?? getRecipientById(previewEmployeeId) ?? recipients[0];
   const metrics = recipient ? getRecipientMetrics(recipient.id) : null;
+  const canWithdraw = role === "employee" && connectedRecipient?.id === recipient?.id;
 
   if (loading && !metrics) {
     return <div className="text-sm text-slate-500">Loading earnings…</div>;
@@ -76,6 +82,20 @@ export default function MyEarningsPage() {
       ? `${metrics.ytdHours.toFixed(1)} hrs YTD`
       : `${metrics.ytdDays} working days YTD`;
 
+  const handleWithdrawNow = async () => {
+    setWithdrawError(null);
+    setWithdrawMessage(null);
+    setIsWithdrawing(true);
+    try {
+      const response = await withdrawNow();
+      setWithdrawMessage(`Treasury paid ${formatCurrency(response.amount)} to your connected wallet.`);
+    } catch (withdrawActionError) {
+      setWithdrawError(withdrawActionError instanceof Error ? withdrawActionError.message : "Withdrawal failed.");
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -85,23 +105,50 @@ export default function MyEarningsPage() {
           </p>
           <p className="mt-1 text-xs text-slate-400">As of {formatDate(today)}</p>
         </div>
-        {(isAdmin || !connectedRecipient) && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Preview employee</span>
-            <select
-              value={recipient.id}
-              onChange={(event) => setPreviewEmployeeId(event.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              {recipients.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {(isAdmin || !connectedRecipient) && (
+            <>
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Preview employee</span>
+              <select
+                value={recipient.id}
+                onChange={(event) => setPreviewEmployeeId(event.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {recipients.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          <button
+            type="button"
+            disabled={!canWithdraw || metrics.availableToWithdraw <= 0 || isWithdrawing}
+            onClick={() => {
+              void handleWithdrawNow();
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 15.75L12 21m0 0l-5.25-5.25M12 21V3" />
+            </svg>
+            {isWithdrawing ? "Withdrawing…" : "Withdraw Now"}
+          </button>
+        </div>
       </div>
+
+      {withdrawMessage && (
+        <Card className="border-emerald-200 bg-emerald-50/40 p-4">
+          <p className="text-sm font-semibold text-emerald-800">{withdrawMessage}</p>
+        </Card>
+      )}
+
+      {withdrawError && (
+        <Card className="border-red-200 bg-red-50/40 p-4">
+          <p className="text-sm font-semibold text-red-800">{withdrawError}</p>
+        </Card>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -188,6 +235,12 @@ export default function MyEarningsPage() {
               <dt className="text-sm text-slate-500">Tracking Mode</dt>
               <dd className="text-sm font-semibold text-slate-900">
                 {recipient.timeTrackingMode === "check_in_out" ? "Manual Check-in/out" : "Schedule-based"}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
+              <dt className="text-sm text-slate-500">Worked Since</dt>
+              <dd className="text-sm font-semibold text-slate-900">
+                {recipient.employmentStartDate ? formatDate(recipient.employmentStartDate) : "Not set"}
               </dd>
             </div>
           </dl>

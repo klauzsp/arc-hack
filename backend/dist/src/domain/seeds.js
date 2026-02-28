@@ -61,6 +61,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-1",
             timeTrackingMode: "schedule_based",
+            employmentStartDate: ytdStart,
             active: true,
         },
         {
@@ -76,6 +77,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-1",
             timeTrackingMode: "check_in_out",
+            employmentStartDate: ytdStart,
             active: true,
         },
         {
@@ -91,6 +93,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-1",
             timeTrackingMode: "schedule_based",
+            employmentStartDate: ytdStart,
             active: true,
         },
         {
@@ -106,6 +109,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-2",
             timeTrackingMode: "schedule_based",
+            employmentStartDate: ytdStart,
             active: true,
         },
         {
@@ -121,6 +125,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-1",
             timeTrackingMode: "check_in_out",
+            employmentStartDate: ytdStart,
             active: true,
         },
         {
@@ -136,6 +141,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-1",
             timeTrackingMode: "schedule_based",
+            employmentStartDate: ytdStart,
             active: true,
         },
         {
@@ -151,6 +157,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-2",
             timeTrackingMode: "schedule_based",
+            employmentStartDate: ytdStart,
             active: true,
         },
         {
@@ -166,6 +173,7 @@ function createSeedPayload(input) {
             destinationWalletAddress: null,
             scheduleId: "s-2",
             timeTrackingMode: "check_in_out",
+            employmentStartDate: ytdStart,
             active: true,
         },
     ];
@@ -179,6 +187,7 @@ function createSeedPayload(input) {
     }));
     const payRuns = [];
     const payRunItems = [];
+    const withdrawals = [];
     const treasuryBalances = [
         { companyId, chainId: arcChainId, chainName: "Arc", usdcCents: 510_000_00, isHub: true },
         { companyId, chainId: 8453, chainName: "Base", usdcCents: 120_000_00, isHub: false },
@@ -215,6 +224,7 @@ function createSeedPayload(input) {
         payRuns,
         payRunItems,
         policies,
+        withdrawals,
     };
 }
 function normalizeSeedChainId(chainPreference, arcChainId) {

@@ -28,6 +28,7 @@ const recipientSchema = z.object({
   destinationWalletAddress: z.string().nullable().optional(),
   scheduleId: z.string().nullable().optional(),
   timeTrackingMode: z.enum(["check_in_out", "schedule_based"]),
+  employmentStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   active: z.boolean().optional(),
 });
 
@@ -78,6 +79,10 @@ const clockOutSchema = z.object({
   clockOut: z.string().regex(/^\d{2}:\d{2}$/).optional(),
 });
 
+const withdrawSchema = z.object({
+  amount: z.number().positive().optional(),
+});
+
 async function getSessionOrThrow(
   request: { headers: Record<string, unknown> },
   authService: AuthService,
@@ -109,7 +114,12 @@ export function buildApp(config: AppConfig) {
   const jobService = new JobService(payrollService);
 
   const app = Fastify({ logger: false });
-  void app.register(cors, { origin: config.corsOrigin, credentials: true });
+  void app.register(cors, {
+    origin: config.corsOrigin,
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  });
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof HttpError) {
@@ -236,6 +246,10 @@ export function buildApp(config: AppConfig) {
   app.get("/me/earnings", async (request) => {
     const session = await getSessionOrThrow(request, authService, "employee");
     return payrollService.getMyEarnings(session.address);
+  });
+  app.post("/me/withdraw", async (request) => {
+    const session = await getSessionOrThrow(request, authService, "employee");
+    return payrollService.withdrawAvailableEarnings(session.address, withdrawSchema.parse(request.body ?? {}));
   });
 
   app.get("/employees/:id", async (request) => {

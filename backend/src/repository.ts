@@ -14,6 +14,7 @@ import type {
   SessionRecord,
   TimeEntryRecord,
   TreasuryBalanceRecord,
+  WithdrawalRecord,
 } from "./domain/types";
 
 function toNumber(value: unknown) {
@@ -83,6 +84,8 @@ function mapEmployee(row: Record<string, unknown>): EmployeeRecord {
       row.destination_wallet_address == null ? null : String(row.destination_wallet_address),
     scheduleId: row.schedule_id == null ? null : String(row.schedule_id),
     timeTrackingMode: row.time_tracking_mode as EmployeeRecord["timeTrackingMode"],
+    employmentStartDate:
+      row.employment_start_date == null ? null : String(row.employment_start_date),
     active: toBoolean(row.active),
   };
 }
@@ -167,6 +170,20 @@ function mapSession(row: Record<string, unknown>): SessionRecord {
   };
 }
 
+function mapWithdrawal(row: Record<string, unknown>): WithdrawalRecord {
+  return {
+    id: String(row.id),
+    employeeId: String(row.employee_id),
+    walletAddress: String(row.wallet_address),
+    amountCents: toNumber(row.amount_cents),
+    txHash: row.tx_hash == null ? null : String(row.tx_hash),
+    periodStart: String(row.period_start),
+    periodEnd: String(row.period_end),
+    createdAt: String(row.created_at),
+    status: row.status as WithdrawalRecord["status"],
+  };
+}
+
 export class PayrollRepository {
   private readonly db: DatabaseSync;
   private readonly demoPayRunIds = ["pr-1", "pr-2", "pr-3", "pr-4", "pr-5"] as const;
@@ -229,6 +246,7 @@ export class PayrollRepository {
         destination_wallet_address TEXT,
         schedule_id TEXT,
         time_tracking_mode TEXT NOT NULL,
+        employment_start_date TEXT,
         active INTEGER NOT NULL
       );
 
@@ -298,6 +316,18 @@ export class PayrollRepository {
         expires_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS withdrawals (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        wallet_address TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        tx_hash TEXT,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays(date);
       CREATE INDEX IF NOT EXISTS idx_time_entries_employee_date ON time_entries(employee_id, date);
       CREATE INDEX IF NOT EXISTS idx_pay_runs_period_start ON pay_runs(period_start DESC);
@@ -305,7 +335,16 @@ export class PayrollRepository {
       CREATE INDEX IF NOT EXISTS idx_policies_type_status ON policies(type, status);
       CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
       CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires_at ON auth_challenges(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_withdrawals_employee_period ON withdrawals(employee_id, period_start, period_end);
     `);
+
+    this.ensureColumn("employees", "employment_start_date", "TEXT");
+  }
+
+  private ensureColumn(table: string, column: string, definition: string) {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<Record<string, unknown>>;
+    if (columns.some((entry) => String(entry.name) === column)) return;
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 
   private transaction<T>(callback: () => T): T {
@@ -387,8 +426,8 @@ export class PayrollRepository {
       const insertEmployee = this.db.prepare(
         `INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
-          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const employee of payload.employees) {
         insertEmployee.run(
@@ -404,6 +443,7 @@ export class PayrollRepository {
           employee.destinationWalletAddress,
           employee.scheduleId,
           employee.timeTrackingMode,
+          employee.employmentStartDate,
           Number(employee.active),
         );
       }
@@ -481,6 +521,25 @@ export class PayrollRepository {
           policy.status,
           JSON.stringify(policy.config),
           policy.lastRunAt,
+        );
+      }
+
+      const insertWithdrawal = this.db.prepare(
+        `INSERT INTO withdrawals (
+          id, employee_id, wallet_address, amount_cents, tx_hash, period_start, period_end, created_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const withdrawal of payload.withdrawals ?? []) {
+        insertWithdrawal.run(
+          withdrawal.id,
+          withdrawal.employeeId,
+          withdrawal.walletAddress,
+          withdrawal.amountCents,
+          withdrawal.txHash,
+          withdrawal.periodStart,
+          withdrawal.periodEnd,
+          withdrawal.createdAt,
+          withdrawal.status,
         );
       }
     });
@@ -592,10 +651,22 @@ export class PayrollRepository {
   }
 
   getEmployeeByWallet(walletAddress: string) {
+    return this.getEmployeeByWalletInternal(walletAddress, false);
+  }
+
+  private getEmployeeByWalletInternal(walletAddress: string, includeInactive: boolean) {
     const row = this.db
-      .prepare("SELECT * FROM employees WHERE wallet_address = ?")
+      .prepare(
+        includeInactive
+          ? "SELECT * FROM employees WHERE wallet_address = ?"
+          : "SELECT * FROM employees WHERE wallet_address = ? AND active = 1",
+      )
       .get(walletAddress.toLowerCase()) as Record<string, unknown> | undefined;
     return row ? mapEmployee(row) : null;
+  }
+
+  getEmployeeByWalletIncludingInactive(walletAddress: string) {
+    return this.getEmployeeByWalletInternal(walletAddress, true);
   }
 
   createEmployee(employee: EmployeeRecord) {
@@ -603,8 +674,8 @@ export class PayrollRepository {
       .prepare(
         `INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
-          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         employee.id,
@@ -619,6 +690,7 @@ export class PayrollRepository {
         employee.destinationWalletAddress,
         employee.scheduleId,
         employee.timeTrackingMode,
+        employee.employmentStartDate,
         Number(employee.active),
       );
     return employee;
@@ -633,7 +705,7 @@ export class PayrollRepository {
         `UPDATE employees
          SET company_id = ?, wallet_address = ?, name = ?, role = ?, pay_type = ?, rate_cents = ?,
              chain_preference = ?, destination_chain_id = ?, destination_wallet_address = ?, schedule_id = ?,
-             time_tracking_mode = ?, active = ?
+             time_tracking_mode = ?, employment_start_date = ?, active = ?
          WHERE id = ?`,
       )
       .run(
@@ -648,6 +720,7 @@ export class PayrollRepository {
         next.destinationWalletAddress,
         next.scheduleId,
         next.timeTrackingMode,
+        next.employmentStartDate,
         Number(next.active),
         id,
       );
@@ -656,6 +729,10 @@ export class PayrollRepository {
 
   deactivateEmployee(id: string) {
     this.db.prepare("UPDATE employees SET active = 0 WHERE id = ?").run(id);
+  }
+
+  deleteSessionsByAddress(address: string) {
+    this.db.prepare("DELETE FROM sessions WHERE address = ?").run(address.toLowerCase());
   }
 
   listHolidays() {
@@ -977,5 +1054,35 @@ export class PayrollRepository {
       this.db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(nowIso);
       this.db.prepare("DELETE FROM auth_challenges WHERE expires_at <= ?").run(nowIso);
     });
+  }
+
+  listWithdrawals(employeeId?: string) {
+    const rows = employeeId
+      ? (this.db
+          .prepare("SELECT * FROM withdrawals WHERE employee_id = ? ORDER BY created_at DESC")
+          .all(employeeId) as Record<string, unknown>[])
+      : (this.db.prepare("SELECT * FROM withdrawals ORDER BY created_at DESC").all() as Record<string, unknown>[]);
+    return rows.map(mapWithdrawal);
+  }
+
+  createWithdrawal(withdrawal: WithdrawalRecord) {
+    this.db
+      .prepare(
+        `INSERT INTO withdrawals (
+          id, employee_id, wallet_address, amount_cents, tx_hash, period_start, period_end, created_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        withdrawal.id,
+        withdrawal.employeeId,
+        withdrawal.walletAddress,
+        withdrawal.amountCents,
+        withdrawal.txHash,
+        withdrawal.periodStart,
+        withdrawal.periodEnd,
+        withdrawal.createdAt,
+        withdrawal.status,
+      );
+    return withdrawal;
   }
 }

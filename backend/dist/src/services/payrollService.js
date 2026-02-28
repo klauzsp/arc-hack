@@ -21,6 +21,7 @@ function toRecipientResponse(employee, availableToWithdrawCents) {
         destinationWalletAddress: employee.destinationWalletAddress,
         scheduleId: employee.scheduleId,
         timeTrackingMode: employee.timeTrackingMode,
+        employmentStartDate: employee.employmentStartDate,
         active: employee.active,
         availableToWithdraw: typeof availableToWithdrawCents === "number" ? (0, payroll_1.dollarsFromCents)(availableToWithdrawCents) : undefined,
     };
@@ -192,15 +193,17 @@ class PayrollService {
     listRecipients() {
         const payRuns = this.repository.listPayRuns();
         const payRunItems = this.repository.listPayRunItems();
+        const withdrawals = this.repository.listWithdrawals();
         const schedules = this.repository.listSchedules();
         const holidays = this.repository.listHolidays();
         const timeEntries = this.repository.listEmployees().flatMap((employee) => this.repository.listTimeEntries(employee.id));
         return this.getRecipients().map((employee) => {
-            const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, schedules, holidays, timeEntries, this.getReferenceDate());
+            const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, this.getReferenceDate());
             return toRecipientResponse(employee, metrics.availableToWithdrawCents);
         });
     }
     createRecipient(input) {
+        const currentPeriod = (0, dates_1.currentSemimonthlyPeriod)(this.getReferenceDate());
         const employee = {
             id: (0, ids_1.createId)("recipient"),
             companyId: this.getCompany().id,
@@ -214,6 +217,7 @@ class PayrollService {
             destinationWalletAddress: input.destinationWalletAddress ?? null,
             scheduleId: input.scheduleId ?? this.repository.listSchedules()[0]?.id ?? null,
             timeTrackingMode: input.timeTrackingMode,
+            employmentStartDate: input.employmentStartDate ?? currentPeriod.periodStart,
             active: true,
         };
         this.repository.createEmployee(employee);
@@ -239,14 +243,17 @@ class PayrollService {
             patch.scheduleId = input.scheduleId;
         if (input.timeTrackingMode !== undefined)
             patch.timeTrackingMode = input.timeTrackingMode;
+        if (input.employmentStartDate !== undefined)
+            patch.employmentStartDate = input.employmentStartDate;
         if (input.active !== undefined)
             patch.active = input.active;
         const updated = requireRecord(this.repository.updateEmployee(id, patch), "Recipient not found.");
         return toRecipientResponse(updated);
     }
     deleteRecipient(id) {
-        requireRecord(this.repository.getEmployee(id), "Recipient not found.");
+        const employee = requireRecord(this.repository.getEmployee(id), "Recipient not found.");
         this.repository.deactivateEmployee(id);
+        this.repository.deleteSessionsByAddress(employee.walletAddress);
         return { ok: true };
     }
     listSchedules() {
@@ -336,6 +343,9 @@ class PayrollService {
     }
     clockOut(address, input) {
         const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
+        if (employee.timeTrackingMode !== "check_in_out") {
+            throw new Error("Employee is configured for schedule-based tracking.");
+        }
         const openEntry = requireRecord(this.repository.getOpenTimeEntry(employee.id), "No active time entry to close.");
         const entriesToday = this.repository.listTimeEntries(employee.id, openEntry.date, openEntry.date);
         const clockOut = input?.clockOut ?? (0, payroll_1.suggestClockOutTime)(employee.id, openEntry.date, entriesToday, openEntry.clockIn);
@@ -350,10 +360,11 @@ class PayrollService {
         const employee = requireRecord(this.repository.getEmployee(id), "Employee not found.");
         const payRuns = this.repository.listPayRuns();
         const payRunItems = this.repository.listPayRunItems();
+        const withdrawals = this.repository.listWithdrawals(employee.id);
         const schedules = this.repository.listSchedules();
         const holidays = this.repository.listHolidays();
         const timeEntries = this.repository.listTimeEntries(employee.id);
-        const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, schedules, holidays, timeEntries, this.getReferenceDate());
+        const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, this.getReferenceDate());
         const currentPeriod = (0, dates_1.currentSemimonthlyPeriod)(this.getReferenceDate());
         return {
             employee: toRecipientResponse(employee),
@@ -376,14 +387,64 @@ class PayrollService {
             },
         };
     }
+    async withdrawAvailableEarnings(address, input) {
+        const normalizedAddress = address.toLowerCase();
+        const employee = requireRecord(this.repository.getEmployeeByWallet(normalizedAddress), "Employee not found.");
+        const payRuns = this.repository.listPayRuns();
+        const payRunItems = this.repository.listPayRunItems();
+        const withdrawals = this.repository.listWithdrawals(employee.id);
+        const schedules = this.repository.listSchedules();
+        const holidays = this.repository.listHolidays();
+        const timeEntries = this.repository.listTimeEntries(employee.id);
+        const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, this.getReferenceDate());
+        if (metrics.availableToWithdrawCents <= 0) {
+            throw new Error("No earned wages are available to withdraw.");
+        }
+        const requestedAmountCents = input?.amount !== undefined ? (0, payroll_1.centsFromDollars)(input.amount) : metrics.availableToWithdrawCents;
+        if (requestedAmountCents <= 0) {
+            throw new Error("Withdrawal amount must be greater than zero.");
+        }
+        if (requestedAmountCents > metrics.availableToWithdrawCents) {
+            throw new Error("Requested withdrawal exceeds the available earned balance.");
+        }
+        await this.ensureLiquidity(requestedAmountCents);
+        const txHash = await this.chainService.transferPayroll(normalizedAddress, requestedAmountCents);
+        const { periodStart, periodEnd } = (0, dates_1.currentSemimonthlyPeriod)(this.getReferenceDate());
+        const withdrawal = {
+            id: (0, ids_1.createId)("withdrawal"),
+            employeeId: employee.id,
+            walletAddress: normalizedAddress,
+            amountCents: requestedAmountCents,
+            txHash,
+            periodStart,
+            periodEnd,
+            createdAt: (0, dates_1.nowIso)(),
+            status: "paid",
+        };
+        this.repository.createWithdrawal(withdrawal);
+        if (this.config.chainMode !== "live") {
+            const hub = this.getHubBalance();
+            hub.usdcCents -= requestedAmountCents;
+            this.repository.updateTreasuryBalance(hub.chainId, hub.usdcCents);
+        }
+        return {
+            ok: true,
+            txHash,
+            amount: (0, payroll_1.dollarsFromCents)(requestedAmountCents),
+            walletAddress: normalizedAddress,
+        };
+    }
     buildPayRunItems(periodStart, periodEnd, employeeIds) {
         const employees = (employeeIds?.length
             ? employeeIds.map((employeeId) => requireRecord(this.repository.getEmployee(employeeId), `Employee ${employeeId} not found.`))
             : this.repository.listEmployees()).filter((employee) => employee.active);
+        const payRuns = this.repository.listPayRuns();
+        const payRunItems = this.repository.listPayRunItems();
+        const withdrawals = this.repository.listWithdrawals();
         const schedules = this.repository.listSchedules();
         const holidays = this.repository.listHolidays();
         const timeEntries = employees.flatMap((employee) => this.repository.listTimeEntries(employee.id));
-        return (0, payroll_1.buildPayRunItemsPreview)(employees, schedules, holidays, timeEntries, periodStart, periodEnd, this.getReferenceDate(), this.config.arcChainId);
+        return (0, payroll_1.buildPayRunItemsPreview)(employees, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, periodStart, periodEnd, this.getReferenceDate(), this.config.arcChainId).filter((item) => item.amountCents > 0);
     }
     createPayRunItemsRecords(payRunId, previews) {
         return previews.map((item, index) => ({
@@ -452,12 +513,22 @@ class PayrollService {
         const payRun = requireRecord(this.repository.getPayRun(id), "Pay run not found.");
         if (payRun.status !== "draft")
             throw new Error("Only draft pay runs can be approved.");
-        const items = this.repository.listPayRunItems(id);
-        if (items.length === 0 || payRun.totalAmountCents <= 0) {
+        const employeeIds = this.repository.listPayRunItems(id).map((item) => item.employeeId);
+        const refreshedPreviews = this.buildPayRunItems(payRun.periodStart, payRun.periodEnd, employeeIds);
+        if (refreshedPreviews.length === 0) {
             throw new Error("A treasury pay run must contain at least one payable recipient before approval.");
         }
-        const onChainId = payRun.onChainId ?? await this.chainService.createPayRun({ payRun, items });
-        for (const item of items) {
+        const refreshedItems = this.createPayRunItemsRecords(id, refreshedPreviews);
+        this.repository.replacePayRunItems(id, refreshedItems);
+        const refreshedPayRun = requireRecord(this.repository.updatePayRun(id, {
+            totalAmountCents: refreshedPreviews.reduce((total, item) => total + item.amountCents, 0),
+            updatedAt: (0, dates_1.nowIso)(),
+        }), "Pay run not found.");
+        const onChainId = refreshedPayRun.onChainId ?? await this.chainService.createPayRun({
+            payRun: refreshedPayRun,
+            items: refreshedItems,
+        });
+        for (const item of refreshedItems) {
             this.repository.updatePayRunItem(item.id, {
                 status: "ready",
             });
@@ -465,6 +536,7 @@ class PayrollService {
         const updated = requireRecord(this.repository.updatePayRun(id, {
             onChainId,
             status: "approved",
+            totalAmountCents: refreshedPayRun.totalAmountCents,
             updatedAt: (0, dates_1.nowIso)(),
         }), "Pay run not found.");
         return toPayRunResponse(updated, this.repository.listPayRunItems(id));

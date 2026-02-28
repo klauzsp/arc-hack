@@ -70,6 +70,7 @@ function mapEmployee(row) {
         destinationWalletAddress: row.destination_wallet_address == null ? null : String(row.destination_wallet_address),
         scheduleId: row.schedule_id == null ? null : String(row.schedule_id),
         timeTrackingMode: row.time_tracking_mode,
+        employmentStartDate: row.employment_start_date == null ? null : String(row.employment_start_date),
         active: toBoolean(row.active),
     };
 }
@@ -146,6 +147,19 @@ function mapSession(row) {
         expiresAt: String(row.expires_at),
     };
 }
+function mapWithdrawal(row) {
+    return {
+        id: String(row.id),
+        employeeId: String(row.employee_id),
+        walletAddress: String(row.wallet_address),
+        amountCents: toNumber(row.amount_cents),
+        txHash: row.tx_hash == null ? null : String(row.tx_hash),
+        periodStart: String(row.period_start),
+        periodEnd: String(row.period_end),
+        createdAt: String(row.created_at),
+        status: row.status,
+    };
+}
 class PayrollRepository {
     dbPath;
     db;
@@ -206,6 +220,7 @@ class PayrollRepository {
         destination_wallet_address TEXT,
         schedule_id TEXT,
         time_tracking_mode TEXT NOT NULL,
+        employment_start_date TEXT,
         active INTEGER NOT NULL
       );
 
@@ -275,6 +290,18 @@ class PayrollRepository {
         expires_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS withdrawals (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        wallet_address TEXT NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        tx_hash TEXT,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays(date);
       CREATE INDEX IF NOT EXISTS idx_time_entries_employee_date ON time_entries(employee_id, date);
       CREATE INDEX IF NOT EXISTS idx_pay_runs_period_start ON pay_runs(period_start DESC);
@@ -282,7 +309,15 @@ class PayrollRepository {
       CREATE INDEX IF NOT EXISTS idx_policies_type_status ON policies(type, status);
       CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
       CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires_at ON auth_challenges(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_withdrawals_employee_period ON withdrawals(employee_id, period_start, period_end);
     `);
+        this.ensureColumn("employees", "employment_start_date", "TEXT");
+    }
+    ensureColumn(table, column, definition) {
+        const columns = this.db.prepare(`PRAGMA table_info(${table})`).all();
+        if (columns.some((entry) => String(entry.name) === column))
+            return;
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
     transaction(callback) {
         this.db.exec("BEGIN");
@@ -327,10 +362,10 @@ class PayrollRepository {
             }
             const insertEmployee = this.db.prepare(`INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
-          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const employee of payload.employees) {
-                insertEmployee.run(employee.id, employee.companyId, employee.walletAddress, employee.name, employee.role, employee.payType, employee.rateCents, employee.chainPreference, employee.destinationChainId, employee.destinationWalletAddress, employee.scheduleId, employee.timeTrackingMode, Number(employee.active));
+                insertEmployee.run(employee.id, employee.companyId, employee.walletAddress, employee.name, employee.role, employee.payType, employee.rateCents, employee.chainPreference, employee.destinationChainId, employee.destinationWalletAddress, employee.scheduleId, employee.timeTrackingMode, employee.employmentStartDate, Number(employee.active));
             }
             const insertHoliday = this.db.prepare("INSERT INTO holidays (id, company_id, date, name) VALUES (?, ?, ?, ?)");
             for (const holiday of payload.holidays) {
@@ -356,6 +391,12 @@ class PayrollRepository {
             const insertPolicy = this.db.prepare("INSERT INTO policies (id, company_id, name, type, status, config_json, last_run_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
             for (const policy of payload.policies) {
                 insertPolicy.run(policy.id, policy.companyId, policy.name, policy.type, policy.status, JSON.stringify(policy.config), policy.lastRunAt);
+            }
+            const insertWithdrawal = this.db.prepare(`INSERT INTO withdrawals (
+          id, employee_id, wallet_address, amount_cents, tx_hash, period_start, period_end, created_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const withdrawal of payload.withdrawals ?? []) {
+                insertWithdrawal.run(withdrawal.id, withdrawal.employeeId, withdrawal.walletAddress, withdrawal.amountCents, withdrawal.txHash, withdrawal.periodStart, withdrawal.periodEnd, withdrawal.createdAt, withdrawal.status);
             }
         });
         this.removeDemoPayRuns();
@@ -420,18 +461,26 @@ class PayrollRepository {
         return row ? mapEmployee(row) : null;
     }
     getEmployeeByWallet(walletAddress) {
+        return this.getEmployeeByWalletInternal(walletAddress, false);
+    }
+    getEmployeeByWalletInternal(walletAddress, includeInactive) {
         const row = this.db
-            .prepare("SELECT * FROM employees WHERE wallet_address = ?")
+            .prepare(includeInactive
+            ? "SELECT * FROM employees WHERE wallet_address = ?"
+            : "SELECT * FROM employees WHERE wallet_address = ? AND active = 1")
             .get(walletAddress.toLowerCase());
         return row ? mapEmployee(row) : null;
+    }
+    getEmployeeByWalletIncludingInactive(walletAddress) {
+        return this.getEmployeeByWalletInternal(walletAddress, true);
     }
     createEmployee(employee) {
         this.db
             .prepare(`INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
-          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(employee.id, employee.companyId, employee.walletAddress, employee.name, employee.role, employee.payType, employee.rateCents, employee.chainPreference, employee.destinationChainId, employee.destinationWalletAddress, employee.scheduleId, employee.timeTrackingMode, Number(employee.active));
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(employee.id, employee.companyId, employee.walletAddress, employee.name, employee.role, employee.payType, employee.rateCents, employee.chainPreference, employee.destinationChainId, employee.destinationWalletAddress, employee.scheduleId, employee.timeTrackingMode, employee.employmentStartDate, Number(employee.active));
         return employee;
     }
     updateEmployee(id, patch) {
@@ -443,13 +492,16 @@ class PayrollRepository {
             .prepare(`UPDATE employees
          SET company_id = ?, wallet_address = ?, name = ?, role = ?, pay_type = ?, rate_cents = ?,
              chain_preference = ?, destination_chain_id = ?, destination_wallet_address = ?, schedule_id = ?,
-             time_tracking_mode = ?, active = ?
+             time_tracking_mode = ?, employment_start_date = ?, active = ?
          WHERE id = ?`)
-            .run(next.companyId, next.walletAddress, next.name, next.role, next.payType, next.rateCents, next.chainPreference, next.destinationChainId, next.destinationWalletAddress, next.scheduleId, next.timeTrackingMode, Number(next.active), id);
+            .run(next.companyId, next.walletAddress, next.name, next.role, next.payType, next.rateCents, next.chainPreference, next.destinationChainId, next.destinationWalletAddress, next.scheduleId, next.timeTrackingMode, next.employmentStartDate, Number(next.active), id);
         return next;
     }
     deactivateEmployee(id) {
         this.db.prepare("UPDATE employees SET active = 0 WHERE id = ?").run(id);
+    }
+    deleteSessionsByAddress(address) {
+        this.db.prepare("DELETE FROM sessions WHERE address = ?").run(address.toLowerCase());
     }
     listHolidays() {
         return this.db.prepare("SELECT * FROM holidays ORDER BY date ASC").all().map(mapHoliday);
@@ -629,6 +681,22 @@ class PayrollRepository {
             this.db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(nowIso);
             this.db.prepare("DELETE FROM auth_challenges WHERE expires_at <= ?").run(nowIso);
         });
+    }
+    listWithdrawals(employeeId) {
+        const rows = employeeId
+            ? this.db
+                .prepare("SELECT * FROM withdrawals WHERE employee_id = ? ORDER BY created_at DESC")
+                .all(employeeId)
+            : this.db.prepare("SELECT * FROM withdrawals ORDER BY created_at DESC").all();
+        return rows.map(mapWithdrawal);
+    }
+    createWithdrawal(withdrawal) {
+        this.db
+            .prepare(`INSERT INTO withdrawals (
+          id, employee_id, wallet_address, amount_cents, tx_hash, period_start, period_end, created_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(withdrawal.id, withdrawal.employeeId, withdrawal.walletAddress, withdrawal.amountCents, withdrawal.txHash, withdrawal.periodStart, withdrawal.periodEnd, withdrawal.createdAt, withdrawal.status);
+        return withdrawal;
     }
 }
 exports.PayrollRepository = PayrollRepository;

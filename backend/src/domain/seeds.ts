@@ -10,6 +10,7 @@ import type {
   ScheduleRecord,
   TimeEntryRecord,
   TreasuryBalanceRecord,
+  WithdrawalRecord,
 } from "./types";
 
 interface SeedPayload {
@@ -22,6 +23,7 @@ interface SeedPayload {
   payRuns: PayRunRecord[];
   payRunItems: PayRunItemRecord[];
   policies: PolicyRecord[];
+  withdrawals: WithdrawalRecord[];
 }
 
 export function createSeedPayload(input: {
@@ -90,6 +92,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-1",
       timeTrackingMode: "schedule_based",
+      employmentStartDate: ytdStart,
       active: true,
     },
     {
@@ -105,6 +108,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-1",
       timeTrackingMode: "check_in_out",
+      employmentStartDate: ytdStart,
       active: true,
     },
     {
@@ -120,6 +124,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-1",
       timeTrackingMode: "schedule_based",
+      employmentStartDate: ytdStart,
       active: true,
     },
     {
@@ -135,6 +140,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-2",
       timeTrackingMode: "schedule_based",
+      employmentStartDate: ytdStart,
       active: true,
     },
     {
@@ -150,6 +156,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-1",
       timeTrackingMode: "check_in_out",
+      employmentStartDate: ytdStart,
       active: true,
     },
     {
@@ -165,6 +172,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-1",
       timeTrackingMode: "schedule_based",
+      employmentStartDate: ytdStart,
       active: true,
     },
     {
@@ -180,6 +188,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-2",
       timeTrackingMode: "schedule_based",
+      employmentStartDate: ytdStart,
       active: true,
     },
     {
@@ -195,6 +204,7 @@ export function createSeedPayload(input: {
       destinationWalletAddress: null,
       scheduleId: "s-2",
       timeTrackingMode: "check_in_out",
+      employmentStartDate: ytdStart,
       active: true,
     },
   ];
@@ -210,6 +220,7 @@ export function createSeedPayload(input: {
 
   const payRuns: PayRunRecord[] = [];
   const payRunItems: PayRunItemRecord[] = [];
+  const withdrawals: WithdrawalRecord[] = [];
 
   const treasuryBalances: TreasuryBalanceRecord[] = [
     { companyId, chainId: arcChainId, chainName: "Arc", usdcCents: 510_000_00, isHub: true },
@@ -249,6 +260,7 @@ export function createSeedPayload(input: {
     payRuns,
     payRunItems,
     policies,
+    withdrawals,
   };
 }
 

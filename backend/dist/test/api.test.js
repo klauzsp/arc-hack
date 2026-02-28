@@ -75,8 +75,17 @@ function createTestHarness() {
     });
     strict_1.default.equal(executeResponse.statusCode, 200);
     const executedPayRun = executeResponse.json();
-    strict_1.default.equal(executedPayRun.status, "executed");
+    strict_1.default.ok(["executed", "processing"].includes(executedPayRun.status));
     strict_1.default.ok(typeof executedPayRun.txHash === "string");
+    if (executedPayRun.status === "processing") {
+        const finalizeResponse = await app.inject({
+            method: "POST",
+            url: `/pay-runs/${createdPayRun.id}/finalize`,
+            headers: { authorization: "Bearer admin-token" },
+        });
+        strict_1.default.equal(finalizeResponse.statusCode, 200);
+        strict_1.default.equal(finalizeResponse.json().status, "executed");
+    }
     await app.close();
 });
 (0, node_test_1.default)("admin can deactivate a recipient from the live recipient list", async () => {
@@ -96,6 +105,12 @@ function createTestHarness() {
     strict_1.default.equal(recipientsResponse.statusCode, 200);
     const recipients = recipientsResponse.json();
     strict_1.default.equal(recipients.some((recipient) => recipient.id === employee.id), false);
+    const deletedEmployeeMe = await app.inject({
+        method: "GET",
+        url: "/me",
+        headers: { authorization: "Bearer employee-token" },
+    });
+    strict_1.default.equal(deletedEmployeeMe.statusCode, 401);
     await app.close();
 });
 (0, node_test_1.default)("employee earnings and time routes are scoped to the signed-in wallet", async () => {
@@ -116,5 +131,58 @@ function createTestHarness() {
     });
     strict_1.default.equal(scheduleResponse.statusCode, 200);
     strict_1.default.ok(scheduleResponse.json().workingDays.length >= 1);
+    await app.close();
+});
+(0, node_test_1.default)("employee can use custom clock times and withdraw earned wages from treasury", async () => {
+    const { app, repository } = createTestHarness();
+    const timeEmployee = repository.listEmployees().find((employee) => employee.timeTrackingMode === "check_in_out");
+    strict_1.default.ok(timeEmployee);
+    repository.createSession({
+        token: "time-employee-token",
+        address: timeEmployee.walletAddress,
+        role: "employee",
+        employeeId: timeEmployee.id,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    const beforeEarnings = await app.inject({
+        method: "GET",
+        url: "/me/earnings",
+        headers: { authorization: "Bearer time-employee-token" },
+    });
+    strict_1.default.equal(beforeEarnings.statusCode, 200);
+    const beforeAvailable = beforeEarnings.json().availableToWithdraw;
+    strict_1.default.ok(beforeAvailable > 0);
+    const clockInResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-entries/clock-in",
+        headers: { authorization: "Bearer time-employee-token" },
+        payload: { date: "2026-02-28", clockIn: "10:15" },
+    });
+    strict_1.default.equal(clockInResponse.statusCode, 200);
+    strict_1.default.equal(clockInResponse.json().clockIn, "10:15");
+    const clockOutResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-entries/clock-out",
+        headers: { authorization: "Bearer time-employee-token" },
+        payload: { clockOut: "18:05" },
+    });
+    strict_1.default.equal(clockOutResponse.statusCode, 200);
+    strict_1.default.equal(clockOutResponse.json().clockOut, "18:05");
+    const withdrawResponse = await app.inject({
+        method: "POST",
+        url: "/me/withdraw",
+        headers: { authorization: "Bearer time-employee-token" },
+        payload: {},
+    });
+    strict_1.default.equal(withdrawResponse.statusCode, 200);
+    strict_1.default.ok(withdrawResponse.json().amount > 0);
+    strict_1.default.equal(typeof withdrawResponse.json().txHash, "string");
+    const afterEarnings = await app.inject({
+        method: "GET",
+        url: "/me/earnings",
+        headers: { authorization: "Bearer time-employee-token" },
+    });
+    strict_1.default.equal(afterEarnings.statusCode, 200);
+    strict_1.default.ok(afterEarnings.json().availableToWithdraw < beforeAvailable);
     await app.close();
 });
