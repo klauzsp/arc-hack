@@ -3,9 +3,14 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --filter frontend dev",
+    "dev:backend": "pnpm --filter backend dev",
+    "dev:all": "pnpm --filter frontend dev & pnpm --filter backend dev",
     "build": "pnpm --filter frontend build",
+    "build:backend": "pnpm --filter backend build",
     "forge:test": "pnpm --filter contracts test",
-    "forge:build": "pnpm --filter contracts build"
+    "forge:build": "pnpm --filter contracts build",
+    "db:migrate": "pnpm --filter backend db:migrate",
+    "db:seed": "pnpm --filter backend run tsx src/db/seed.ts"
   },
   "engines": {
     "node": ">=18"

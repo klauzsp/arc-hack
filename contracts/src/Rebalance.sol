@@ -11,37 +11,62 @@ interface ITeller {
 
 contract Rebalance {
     using SafeERC20 for IERC20;
-    ITeller teller = ITeller(0x96424C885951ceb4B79fecb934eD857999e6f82B);
-    IERC20 public usdc = IERC20(address(0x3600000000000000000000000000000000000000));
-    IERC20 public usyc = IERC20(0x38D3A3f8717F4DB1CcB4Ad7D8C755919440848A3);
-    address usycWhitelistedAddress = 0x13e00D9810d3C8Dc19A8C9A172fd9A8aC56e94e0;
+
+    ITeller public teller;
+    IERC20  public usdc;
+    IERC20  public usyc;
+
+    address public usycWhitelistedAddress;
+    address public keeper;   // backend/keeper EOA that can also trigger rebalance
 
     event UsdcToUsyc(uint256 usdcAmount, uint256 usycAmount);
     event UsycToUsdc(uint256 usdcAmount, uint256 usycAmount);
+    event KeeperUpdated(address indexed newKeeper);
 
-    // EOA calls allocate on this contact, which through viem calls teller, the EOA sends USDC and receives USYC.
-    // EOA calls redeem on this contract, which through viem calls teller, the EOA sends USYC and receives USDC.
+    modifier onlyWhitelistedOrKeeper() {
+        require(
+            msg.sender == usycWhitelistedAddress || msg.sender == keeper,
+            "Not authorised"
+        );
+        _;
+    }
 
-    function usdcToWhitelisted(uint256 _amount) external {
-        require(msg.sender == usycWhitelistedAddress, "Only whitelisted address can call");
+    constructor(address _usdc, address _usyc, address _teller, address _whitelisted) {
+        usdc = IERC20(_usdc);
+        usyc = IERC20(_usyc);
+        teller = ITeller(_teller);
+        usycWhitelistedAddress = _whitelisted;
+    }
+
+    function setKeeper(address _keeper) external {
+        require(msg.sender == usycWhitelistedAddress, "Only whitelisted");
+        keeper = _keeper;
+        emit KeeperUpdated(_keeper);
+    }
+
+    function usdcToWhitelisted(uint256 _amount) external onlyWhitelistedOrKeeper {
         usdc.approve(usycWhitelistedAddress, _amount);
         usdc.safeTransfer(usycWhitelistedAddress, _amount);
     }
 
-    function usdcToUsyc(uint256 _amount) external returns (uint256) {
-        require(msg.sender == usycWhitelistedAddress, "Only whitelisted address can deposit");
+    function usdcToUsyc(uint256 _amount) external onlyWhitelistedOrKeeper returns (uint256) {
         usdc.approve(address(teller), _amount);
         uint256 usycPurchased = teller.deposit(_amount, usycWhitelistedAddress);
-
         emit UsdcToUsyc(_amount, usycPurchased);
         return usycPurchased;
     }
 
-    function usycToUsdc(uint256 _amount) external returns (uint256) {
-        require(msg.sender == usycWhitelistedAddress, "Only whitelisted address can redeem");
+    function usycToUsdc(uint256 _amount) external onlyWhitelistedOrKeeper returns (uint256) {
         uint256 usdcPayout = teller.redeem(_amount, address(this), msg.sender);
         emit UsycToUsdc(usdcPayout, _amount);
         return usdcPayout;
+    }
+
+    /**
+     * @notice Transfer USDC held by this contract to a target (e.g. Core treasury).
+     */
+    function transferUsdc(address to, uint256 amount) external onlyWhitelistedOrKeeper {
+        usdc.safeTransfer(to, amount);
     }
 }
 

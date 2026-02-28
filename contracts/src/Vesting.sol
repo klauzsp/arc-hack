@@ -42,8 +42,9 @@ contract Vesting {
 
     event VestWithdrawn(address indexed recipient, bytes32 indexed vestId, uint256 amount, uint256 timestamp);
 
-    constructor() {
+    constructor(address _usdc) {
         employer = msg.sender;
+        usdc = IERC20(_usdc);
     }
 
     /*
