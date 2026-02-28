@@ -43,7 +43,7 @@ function formatDays(value: number) {
 
 export default function MyTimePage() {
   const { address } = useAccount();
-  const { role } = useAuthSession();
+  const { role, employee } = useAuthSession();
   const {
     recipients,
     schedules,
@@ -79,14 +79,18 @@ export default function MyTimePage() {
   const [isSavingTimeOff, setIsSavingTimeOff] = useState(false);
 
   const connectedRecipient = getRecipientByWallet(address);
+  const sessionRecipient = employee ? getRecipientById(employee.id) ?? employee : null;
   const isAdmin = role === "admin";
-  const recipient = connectedRecipient ?? getRecipientById(previewEmployeeId) ?? recipients[0];
+  const ownRecipient = sessionRecipient ?? connectedRecipient ?? null;
+  const recipient = isAdmin
+    ? getRecipientById(previewEmployeeId) ?? recipients[0]
+    : ownRecipient;
   const metrics = recipient ? getRecipientMetrics(recipient.id) : null;
   const schedule = schedules.find((candidate) => candidate.id === recipient?.scheduleId) ?? schedules[0];
   const recipientEntries = recipient ? getRecipientTimeEntries(recipient.id) : [];
   const isCheckInOut = recipient?.timeTrackingMode === "check_in_out";
   const activeSession = recipient ? activeSessions[recipient.id] : undefined;
-  const canManageOwnTime = role === "employee" && connectedRecipient?.id === recipient?.id;
+  const canManageOwnTime = role === "employee" && ownRecipient?.id === recipient?.id;
   const currentPeriodEntries = recipientEntries.filter(
     (entry) => entry.date >= currentPeriodStart && entry.date <= today,
   );
@@ -215,7 +219,7 @@ export default function MyTimePage() {
           </p>
           <p className="mt-1 text-xs text-slate-400">As of {formatDate(today)}</p>
         </div>
-        {(isAdmin || !connectedRecipient) && (
+        {isAdmin && (
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Preview employee</span>
             <select
@@ -312,7 +316,7 @@ export default function MyTimePage() {
               </div>
               {!canManageOwnTime && (
                 <p className="text-xs text-slate-500">
-                  Sign in as this employee wallet to submit live time entries.
+                  Only the signed-in employee can submit live time entries.
                 </p>
               )}
             </div>

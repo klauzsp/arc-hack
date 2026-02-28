@@ -39,7 +39,7 @@ function formatDate(value: string) {
 
 export default function MyEarningsPage() {
   const { address } = useAccount();
-  const { role } = useAuthSession();
+  const { role, employee } = useAuthSession();
   const {
     recipients,
     today,
@@ -59,10 +59,14 @@ export default function MyEarningsPage() {
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   const connectedRecipient = getRecipientByWallet(address);
+  const sessionRecipient = employee ? getRecipientById(employee.id) ?? employee : null;
   const isAdmin = role === "admin";
-  const recipient = connectedRecipient ?? getRecipientById(previewEmployeeId) ?? recipients[0];
+  const ownRecipient = sessionRecipient ?? connectedRecipient ?? null;
+  const recipient = isAdmin
+    ? getRecipientById(previewEmployeeId) ?? recipients[0]
+    : ownRecipient;
   const metrics = recipient ? getRecipientMetrics(recipient.id) : null;
-  const canWithdraw = role === "employee" && connectedRecipient?.id === recipient?.id;
+  const canWithdraw = role === "employee" && ownRecipient?.id === recipient?.id;
 
   if (loading && !metrics) {
     return <div className="text-sm text-slate-500">Loading earnings…</div>;
@@ -114,7 +118,7 @@ export default function MyEarningsPage() {
           <p className="mt-1 text-xs text-slate-400">As of {formatDate(today)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {(isAdmin || !connectedRecipient) && (
+          {isAdmin && (
             <>
               <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Preview employee</span>
               <select

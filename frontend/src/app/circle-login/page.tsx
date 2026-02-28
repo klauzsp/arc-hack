@@ -195,8 +195,8 @@ function CircleLoginPageContent() {
               Employees who onboarded with a Circle wallet can sign in here with Google and go straight to payroll.
             </p>
           </div>
-          <Link href="/" className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900">
-            Back to app
+          <Link href="/sign-in" className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900">
+            Back to sign in
           </Link>
         </div>
 
