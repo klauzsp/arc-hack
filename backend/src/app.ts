@@ -5,6 +5,7 @@ import { AppConfig } from "./config";
 import { PayrollRepository } from "./repository";
 import { AuthService } from "./services/authService";
 import { ChainService } from "./services/chainService";
+import { CircleWalletService } from "./services/circleWalletService";
 import { JobService } from "./services/jobService";
 import { PayrollService } from "./services/payrollService";
 import { nowIso } from "./lib/dates";
@@ -19,7 +20,7 @@ class HttpError extends Error {
 }
 
 const recipientSchema = z.object({
-  walletAddress: z.string().min(1),
+  walletAddress: z.string().min(1).nullable().optional(),
   name: z.string().min(1),
   payType: z.enum(["yearly", "daily", "hourly"]),
   rate: z.number().nonnegative(),
@@ -103,6 +104,24 @@ const adminTimeOffReviewSchema = z.object({
   status: z.enum(["approved", "rejected", "cancelled"]),
 });
 
+const onboardingCodeSchema = z.object({
+  code: z.string().min(6),
+});
+
+const onboardingWalletChallengeSchema = onboardingCodeSchema.extend({
+  address: z.string().min(1),
+});
+
+const onboardingWalletClaimSchema = onboardingCodeSchema.extend({
+  address: z.string().min(1),
+  message: z.string().min(1),
+  signature: z.string().startsWith("0x"),
+});
+
+const onboardingCircleCompleteSchema = onboardingCodeSchema.extend({
+  userToken: z.string().min(1),
+});
+
 async function getSessionOrThrow(
   request: { headers: Record<string, unknown> },
   authService: AuthService,
@@ -130,7 +149,8 @@ export function buildApp(config: AppConfig) {
 
   const chainService = new ChainService(config);
   const payrollService = new PayrollService(repository, config, chainService);
-  const authService = new AuthService(repository, config);
+  const circleWalletService = new CircleWalletService(config);
+  const authService = new AuthService(repository, config, circleWalletService);
   const jobService = new JobService(payrollService);
 
   const app = Fastify({ logger: false });
@@ -167,6 +187,7 @@ export function buildApp(config: AppConfig) {
     ok: true,
     mode: config.chainMode,
     stableFxConfigured: Boolean(config.liveChain?.stableFxApiKey),
+    circleConfigured: circleWalletService.isConfigured(),
   }));
 
   app.post("/auth/challenge", async (request) => {
@@ -215,6 +236,44 @@ export function buildApp(config: AppConfig) {
     await getSessionOrThrow(request, authService, "admin");
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     return payrollService.deleteRecipient(params.id);
+  });
+  app.post("/recipients/:id/access-code", async (request) => {
+    const session = await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    return authService.createRecipientAccessCode(params.id, session.address, nowIso());
+  });
+
+  app.post("/onboarding/redeem", async (request) => {
+    return authService.redeemInviteCode(onboardingCodeSchema.parse(request.body ?? {}).code, nowIso());
+  });
+  app.post("/onboarding/wallet/challenge", async (request) => {
+    const body = onboardingWalletChallengeSchema.parse(request.body ?? {});
+    return authService.issueWalletClaimChallenge({
+      code: body.code,
+      address: body.address,
+      nowIso: nowIso(),
+    });
+  });
+  app.post("/onboarding/wallet/claim", async (request) => {
+    const body = onboardingWalletClaimSchema.parse(request.body ?? {});
+    return authService.claimInviteWithWallet({
+      code: body.code,
+      address: body.address,
+      message: body.message,
+      signature: body.signature as `0x${string}`,
+      nowIso: nowIso(),
+    });
+  });
+  app.post("/onboarding/circle/start", async (request) => {
+    return authService.startCircleOnboarding(onboardingCodeSchema.parse(request.body ?? {}).code, nowIso());
+  });
+  app.post("/onboarding/circle/complete", async (request) => {
+    const body = onboardingCircleCompleteSchema.parse(request.body ?? {});
+    return authService.completeCircleOnboarding({
+      code: body.code,
+      userToken: body.userToken,
+      nowIso: nowIso(),
+    });
   });
 
   app.get("/schedules", async () => payrollService.listSchedules());
@@ -396,6 +455,7 @@ export function buildApp(config: AppConfig) {
       payrollService,
       jobService,
       chainService,
+      circleWalletService,
     },
   };
 }

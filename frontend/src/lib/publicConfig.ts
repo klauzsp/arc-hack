@@ -2,10 +2,10 @@ const DEFAULT_API_URL = "http://127.0.0.1:3001";
 const DEFAULT_ARC_RPC_URL = "https://rpc.testnet.arc.network";
 const DEFAULT_APP_URL = "http://localhost:3000";
 const DEFAULT_CEO_ADDRESS = "0x13e00D9810d3C8Dc19A8C9A172fd9A8aC56e94e0";
-const DEFAULT_CORE_ADDRESS = "0xDC0E621d30A0461d611abbE5fe99A34c9DEB337e";
-const DEFAULT_PAYRUN_ADDRESS = "0x6CC73eb2761E6C42C3D72D0E25fA1A59abA305BD";
-const DEFAULT_REBALANCE_ADDRESS = "0x9DD4808a5014D074b4d0b1d6AB54682F54C88008";
-const DEFAULT_VESTING_ADDRESS = "0x325dc7138EE11A1ACFE5ccdf9A7D6Cc27A38cca1";
+const DEFAULT_CORE_ADDRESS = "0xa8ce1f3b7c71a9c577686c93c4e8b4924bb5c5ca";
+const DEFAULT_PAYRUN_ADDRESS = "0xa5a046e6dc6a10bfd54d88be7744680392feed79";
+const DEFAULT_REBALANCE_ADDRESS = "0x3504c84a71902d1af3a74ec50826db8b3a9f67d6";
+const DEFAULT_VESTING_ADDRESS = "0x8688a03e4ec16b26dbaffa67a76fd2c3cebe7c68";
 const DEFAULT_USYC_ADDRESS = "0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C";
 const DEFAULT_USYC_TELLER_ADDRESS = "0x9fdF14c5B14173D74C08Af27AebFf39240dC105A";
 
@@ -25,6 +25,7 @@ const arcRebalanceAddress = readEnv(process.env.NEXT_PUBLIC_ARC_REBALANCE_ADDRES
 const arcVestingAddress = readEnv(process.env.NEXT_PUBLIC_ARC_VESTING_ADDRESS);
 const arcUsycAddress = readEnv(process.env.NEXT_PUBLIC_ARC_USYC_ADDRESS);
 const arcUsycTellerAddress = readEnv(process.env.NEXT_PUBLIC_ARC_USYC_TELLER_ADDRESS);
+const circleAppId = readEnv(process.env.NEXT_PUBLIC_CIRCLE_APP_ID);
 
 export const publicConfig = {
   apiUrl: apiUrl ?? DEFAULT_API_URL,
@@ -49,6 +50,8 @@ export const publicConfig = {
   arcUsycAddressSource: arcUsycAddress ? "env" : "default",
   arcUsycTellerAddress: arcUsycTellerAddress ?? DEFAULT_USYC_TELLER_ADDRESS,
   arcUsycTellerAddressSource: arcUsycTellerAddress ? "env" : "default",
+  circleAppId: circleAppId ?? null,
+  circleAppIdSource: circleAppId ? "env" : "missing",
 } as const;
 
 export function maskValue(value: string | null, visible = 6) {

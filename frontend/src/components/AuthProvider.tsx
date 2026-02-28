@@ -2,25 +2,30 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useAccount, useSignMessage } from "wagmi";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, type AuthVerifyResponse } from "@/lib/api";
 import type { Recipient } from "@/lib/types";
 import type { Role } from "@/lib/role";
 
 const STORAGE_KEY = "arc-payroll-session";
 
+export type SessionKind = "wallet" | "employee";
+
 type StoredSession = {
   token: string;
-  address: string;
+  address: string | null;
+  kind: SessionKind;
 };
 
 type AuthContextValue = {
   token: string | null;
   role: Role;
   employee: Recipient | null;
+  sessionKind: SessionKind | null;
   isLoading: boolean;
   isAuthenticating: boolean;
   error: string | null;
   signIn: () => Promise<void>;
+  completeSession: (session: AuthVerifyResponse, kind: SessionKind, address?: string | null) => void;
   signOut: () => void;
   refresh: () => Promise<void>;
 };
@@ -54,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<Role>(null);
   const [employee, setEmployee] = useState<Recipient | null>(null);
+  const [sessionKind, setSessionKind] = useState<SessionKind | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +69,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setRole(null);
     setEmployee(null);
+    setSessionKind(null);
     storeSession(null);
+  };
+
+  const acceptSession = (
+    nextToken: string,
+    nextRole: Role,
+    nextEmployee: Recipient | null,
+    kind: SessionKind,
+    nextAddress?: string | null,
+  ) => {
+    setToken(nextToken);
+    setRole(nextRole);
+    setEmployee(nextEmployee);
+    setSessionKind(kind);
+    storeSession({
+      token: nextToken,
+      address: nextAddress?.toLowerCase() ?? null,
+      kind,
+    });
+    if (kind === "wallet") {
+      lastValidatedAddressRef.current = nextAddress?.toLowerCase() ?? null;
+    }
+  };
+
+  const completeSession = (session: AuthVerifyResponse, kind: SessionKind, nextAddress?: string | null) => {
+    if (!session.token || !session.role) {
+      clearSession();
+      throw new Error("This session is not authorized for payroll access.");
+    }
+    acceptSession(session.token, session.role, session.employee, kind, nextAddress ?? session.employee?.walletAddress ?? null);
+    setError(null);
+    setIsLoading(false);
   };
 
   const refresh = async () => {
@@ -82,6 +120,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    const stored = readStoredSession();
+    if (!stored) {
+      if (!token) {
+        setRole(null);
+        setEmployee(null);
+        setSessionKind(null);
+      }
+      setIsLoading(false);
+      lastValidatedAddressRef.current = null;
+      return;
+    }
+
+    if (stored.kind === "employee") {
+      if (token === stored.token && sessionKind === "employee") {
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      void api
+        .getMe(stored.token)
+        .then((me) => {
+          acceptSession(stored.token, me.role, me.employee, "employee", me.employee?.walletAddress ?? null);
+          setError(null);
+        })
+        .catch((fetchError) => {
+          clearSession();
+          if (fetchError instanceof ApiError) {
+            setError(fetchError.message);
+          }
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+      return;
+    }
+
     if (!isConnected || !address) {
       clearSession();
       setIsLoading(false);
@@ -90,16 +165,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const normalizedAddress = address.toLowerCase();
-    if (lastValidatedAddressRef.current === normalizedAddress && token) {
-      setIsLoading(false);
-      return;
-    }
-
-    const stored = readStoredSession();
-    if (!stored || stored.address !== normalizedAddress) {
+    if (stored.address !== normalizedAddress) {
       clearSession();
       setIsLoading(false);
       lastValidatedAddressRef.current = normalizedAddress;
+      return;
+    }
+
+    if (lastValidatedAddressRef.current === normalizedAddress && token && sessionKind === "wallet") {
+      setIsLoading(false);
       return;
     }
 
@@ -107,11 +181,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void api
       .getMe(stored.token)
       .then((me) => {
-        setToken(stored.token);
-        setRole(me.role);
-        setEmployee(me.employee);
+        acceptSession(stored.token, me.role, me.employee, "wallet", normalizedAddress);
         setError(null);
-        lastValidatedAddressRef.current = normalizedAddress;
       })
       .catch((fetchError) => {
         clearSession();
@@ -122,7 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [address, isConnected, token]);
+  }, [address, isConnected, sessionKind, token]);
 
   const signIn = async () => {
     if (!address) {
@@ -149,11 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setToken(session.token);
-      setRole(session.role);
-      setEmployee(session.employee);
-      storeSession({ token: session.token, address: normalizedAddress });
-      lastValidatedAddressRef.current = normalizedAddress;
+      acceptSession(session.token, session.role, session.employee, "wallet", normalizedAddress);
     } catch (signInError) {
       if (signInError instanceof Error) {
         setError(signInError.message);
@@ -177,10 +244,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token,
         role,
         employee,
+        sessionKind,
         isLoading,
         isAuthenticating,
         error,
         signIn,
+        completeSession,
         signOut,
         refresh,
       }}

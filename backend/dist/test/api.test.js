@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const strict_1 = __importDefault(require("node:assert/strict"));
 const node_test_1 = __importDefault(require("node:test"));
+const accounts_1 = require("viem/accounts");
 const app_1 = require("../src/app");
 const config_1 = require("../src/config");
 function createTestHarness(overrides = {}) {
@@ -255,6 +256,87 @@ function createTestHarness(overrides = {}) {
     strict_1.default.equal(myTimeOffResponse.json().allowance.maxDays, 1);
     strict_1.default.equal(myTimeOffResponse.json().allowance.reservedDays, 1);
     strict_1.default.equal(myTimeOffResponse.json().allowance.remainingDays, 0);
+    await app.close();
+});
+(0, node_test_1.default)("admin can issue a one-time access code and an employee can claim onboarding with an existing wallet", async () => {
+    const { app } = createTestHarness();
+    const createRecipientResponse = await app.inject({
+        method: "POST",
+        url: "/recipients",
+        headers: { authorization: "Bearer admin-token" },
+        payload: {
+            walletAddress: null,
+            name: "Ivy Turner",
+            payType: "hourly",
+            rate: 41,
+            chainPreference: "Base",
+            timeTrackingMode: "schedule_based",
+            scheduleId: "s-1",
+            employmentStartDate: "2026-02-15",
+        },
+    });
+    strict_1.default.equal(createRecipientResponse.statusCode, 200);
+    strict_1.default.equal(createRecipientResponse.json().onboardingStatus, "unclaimed");
+    strict_1.default.equal(createRecipientResponse.json().walletAddress, null);
+    const recipientId = createRecipientResponse.json().id;
+    const inviteResponse = await app.inject({
+        method: "POST",
+        url: `/recipients/${recipientId}/access-code`,
+        headers: { authorization: "Bearer admin-token" },
+        payload: {},
+    });
+    strict_1.default.equal(inviteResponse.statusCode, 200);
+    const code = inviteResponse.json().code;
+    strict_1.default.ok(code.length >= 8);
+    const redeemResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/redeem",
+        payload: { code },
+    });
+    strict_1.default.equal(redeemResponse.statusCode, 200);
+    strict_1.default.equal(redeemResponse.json().employee.name, "Ivy Turner");
+    strict_1.default.equal(redeemResponse.json().options.existingWallet, true);
+    const account = (0, accounts_1.privateKeyToAccount)("0x59c6995e998f97a5a0044966f09453827875d79eb8b7e51f5a61b0d12dd2c6d9");
+    const challengeResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/wallet/challenge",
+        payload: {
+            code,
+            address: account.address,
+        },
+    });
+    strict_1.default.equal(challengeResponse.statusCode, 200);
+    const challenge = challengeResponse.json();
+    const signature = await account.signMessage({
+        message: challenge.message,
+    });
+    const claimResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/wallet/claim",
+        payload: {
+            code,
+            address: account.address,
+            message: challenge.message,
+            signature,
+        },
+    });
+    strict_1.default.equal(claimResponse.statusCode, 200);
+    strict_1.default.equal(claimResponse.json().role, "employee");
+    strict_1.default.equal(claimResponse.json().employee.onboardingStatus, "claimed");
+    strict_1.default.equal(claimResponse.json().employee.walletAddress.toLowerCase(), account.address.toLowerCase());
+    const meResponse = await app.inject({
+        method: "GET",
+        url: "/me",
+        headers: { authorization: `Bearer ${claimResponse.json().token}` },
+    });
+    strict_1.default.equal(meResponse.statusCode, 200);
+    strict_1.default.equal(meResponse.json().employee.name, "Ivy Turner");
+    const reuseResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/redeem",
+        payload: { code },
+    });
+    strict_1.default.equal(reuseResponse.statusCode, 500);
     await app.close();
 });
 (0, node_test_1.default)("employee time-off requests reject past dates, non-working days, and duplicate active dates", async () => {

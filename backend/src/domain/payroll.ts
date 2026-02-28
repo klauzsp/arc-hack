@@ -7,6 +7,7 @@ import {
   parseIsoDate,
   yearStart,
 } from "../lib/dates";
+import { domainFromPreference } from "../lib/cctp";
 import type {
   EmployeeRecord,
   HolidayRecord,
@@ -55,11 +56,9 @@ export function centsFromDollars(value: number) {
   return Math.round(value * 100);
 }
 
-export function chainIdFromPreference(chainPreference: string | null | undefined, arcChainId: number) {
-  if (chainPreference === "Base") return 8453;
-  if (chainPreference === "Arbitrum") return 42161;
-  if (chainPreference === "Ethereum") return 11155111;
-  return arcChainId;
+export function chainIdFromPreference(chainPreference: string | null | undefined, _arcChainId: number) {
+  if (chainPreference == null || chainPreference.trim() === "") return domainFromPreference("Arc");
+  return domainFromPreference(chainPreference);
 }
 
 export function getSchedule(scheduleId: string | null, schedules: ScheduleRecord[]) {
@@ -380,6 +379,9 @@ export function buildPayRunItemsPreview(
       recipientWalletAddress: employee.destinationWalletAddress ?? employee.walletAddress,
       destinationChainId: employee.destinationChainId ?? chainIdFromPreference(employee.chainPreference, arcChainId),
       amountCents,
+      maxFeeBaseUnits: 0,
+      minFinalityThreshold: 2000,
+      useForwarder: false,
       status: periodEnd <= today ? "ready" : "forecast",
     };
   });

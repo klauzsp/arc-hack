@@ -11,7 +11,7 @@ function shortAddress(address: string) {
 
 export function WalletButton() {
   const [walletError, setWalletError] = useState<string | null>(null);
-  const { token, role, signIn, signOut, isAuthenticating, error } = useAuthSession();
+  const { token, role, sessionKind, signIn, signOut, isAuthenticating, error } = useAuthSession();
   const displayError = walletError ?? error;
 
   return (
@@ -34,7 +34,27 @@ export function WalletButton() {
 
         return (
           <div className="flex items-center gap-2">
-            {!connected ? (
+            {!connected && token && sessionKind === "employee" ? (
+              <>
+                <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  Employee Session
+                  <span className="hidden text-xs uppercase text-slate-400 sm:inline">
+                    {role ?? "Connected"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWalletError(null);
+                    signOut();
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : !connected ? (
               <button
                 type="button"
                 onClick={() => {

@@ -15,6 +15,7 @@ import type {
   TreasuryBalanceRecord,
   WithdrawalRecord,
 } from "../domain/types";
+import { ARC_TESTNET_CCTP_DOMAIN } from "../lib/cctp";
 import { currentSemimonthlyPeriod, isoClock, nowIso, todayIso } from "../lib/dates";
 import { createId } from "../lib/ids";
 import { PayrollRepository } from "../repository";
@@ -25,22 +26,40 @@ function requireRecord<T>(value: T | null | undefined, message: string): NonNull
   return value as NonNullable<T>;
 }
 
-function toRecipientResponse(employee: EmployeeRecord, availableToWithdrawCents?: number) {
+function publicWalletAddress(value: string | null | undefined) {
+  return value && value.startsWith("0x") ? value : null;
+}
+
+function toRecipientResponse(
+  employee: EmployeeRecord,
+  options?: Partial<{
+    availableToWithdrawCents: number;
+    activeInvite: { id: string; createdAt: string; expiresAt: string } | null;
+  }>,
+) {
   return {
     id: employee.id,
-    walletAddress: employee.walletAddress,
+    walletAddress: publicWalletAddress(employee.walletAddress),
     name: employee.name,
     payType: employee.payType,
     rate: dollarsFromCents(employee.rateCents),
     chainPreference: employee.chainPreference,
     destinationChainId: employee.destinationChainId,
-    destinationWalletAddress: employee.destinationWalletAddress,
+    destinationWalletAddress:
+      publicWalletAddress(employee.destinationWalletAddress) ??
+      publicWalletAddress(employee.walletAddress),
     scheduleId: employee.scheduleId,
     timeTrackingMode: employee.timeTrackingMode,
     employmentStartDate: employee.employmentStartDate,
+    onboardingStatus: employee.onboardingStatus,
+    onboardingMethod: employee.onboardingMethod,
+    claimedAt: employee.claimedAt,
+    activeInvite: options?.activeInvite ?? null,
     active: employee.active,
     availableToWithdraw:
-      typeof availableToWithdrawCents === "number" ? dollarsFromCents(availableToWithdrawCents) : undefined,
+      typeof options?.availableToWithdrawCents === "number"
+        ? dollarsFromCents(options.availableToWithdrawCents)
+        : undefined,
   };
 }
 
@@ -90,6 +109,7 @@ function toPayRunResponse(payRun: PayRunRecord, items: PayRunItemRecord[]) {
       recipientId: item.employeeId,
       amount: dollarsFromCents(item.amountCents),
       chainId: item.destinationChainId,
+      useForwarder: item.useForwarder,
       status: item.status,
       txHash: item.txHash,
     })),
@@ -304,6 +324,9 @@ export class PayrollService {
     if (employees.some((employee) => !employee.chainPreference)) {
       alerts.push("Some recipients are missing a chain preference.");
     }
+    if (employees.some((employee) => employee.onboardingStatus !== "claimed")) {
+      alerts.push("Some recipients have not completed onboarding and are excluded from treasury pay runs.");
+    }
     if (treasury.source !== "chain") {
       alerts.push("Treasury is showing the last stored snapshot because the live Arc RPC read failed.");
     }
@@ -346,6 +369,7 @@ export class PayrollService {
     const approvedTimeOffRequests = this.approvedTimeOffRequests();
     const timeEntries = this.repository.listEmployees().flatMap((employee) => this.repository.listTimeEntries(employee.id));
     return this.getRecipients().map((employee) => {
+      const invite = this.repository.getActiveEmployeeInviteCode(employee.id, this.getReferenceNow());
       const metrics = calculateRecipientMetrics(
         employee,
         payRuns,
@@ -358,12 +382,21 @@ export class PayrollService {
         this.getReferenceNow(),
         this.getReferenceDate(),
       );
-      return toRecipientResponse(employee, metrics.availableToWithdrawCents);
+      return toRecipientResponse(employee, {
+        availableToWithdrawCents: metrics.availableToWithdrawCents,
+        activeInvite: invite
+          ? {
+              id: invite.id,
+              createdAt: invite.createdAt,
+              expiresAt: invite.expiresAt,
+            }
+          : null,
+      });
     });
   }
 
   createRecipient(input: {
-    walletAddress: string;
+    walletAddress?: string | null;
     name: string;
     payType: EmployeeRecord["payType"];
     rate: number;
@@ -375,20 +408,29 @@ export class PayrollService {
     employmentStartDate?: string | null;
   }) {
     const currentPeriod = currentSemimonthlyPeriod(this.getReferenceDate());
+    const employeeId = createId("recipient");
+    const normalizedWalletAddress = input.walletAddress?.trim()
+      ? input.walletAddress.toLowerCase()
+      : `pending:${employeeId}`;
     const employee: EmployeeRecord = {
-      id: createId("recipient"),
+      id: employeeId,
       companyId: this.getCompany().id,
-      walletAddress: input.walletAddress.toLowerCase(),
+      walletAddress: normalizedWalletAddress,
       name: input.name,
       role: "employee",
       payType: input.payType,
       rateCents: centsFromDollars(input.rate),
       chainPreference: input.chainPreference ?? "Arc",
       destinationChainId: input.destinationChainId ?? chainIdFromPreference(input.chainPreference ?? "Arc", this.config.arcChainId),
-      destinationWalletAddress: input.destinationWalletAddress ?? null,
+      destinationWalletAddress: input.destinationWalletAddress ?? (normalizedWalletAddress.startsWith("0x") ? normalizedWalletAddress : null),
       scheduleId: input.scheduleId ?? this.repository.listSchedules()[0]?.id ?? null,
       timeTrackingMode: input.timeTrackingMode,
       employmentStartDate: input.employmentStartDate ?? currentPeriod.periodStart,
+      onboardingStatus: normalizedWalletAddress.startsWith("0x") ? "claimed" : "unclaimed",
+      onboardingMethod: normalizedWalletAddress.startsWith("0x") ? "existing_wallet" : null,
+      claimedAt: normalizedWalletAddress.startsWith("0x") ? nowIso() : null,
+      circleUserId: null,
+      circleWalletId: null,
       active: true,
     };
     this.repository.createEmployee(employee);
@@ -396,7 +438,7 @@ export class PayrollService {
   }
 
   updateRecipient(id: string, input: Partial<{
-    walletAddress: string;
+    walletAddress: string | null;
     name: string;
     payType: EmployeeRecord["payType"];
     rate: number;
@@ -409,7 +451,15 @@ export class PayrollService {
     active: boolean;
   }>) {
     const patch: Partial<EmployeeRecord> = {};
-    if (input.walletAddress !== undefined) patch.walletAddress = input.walletAddress.toLowerCase();
+    if (input.walletAddress !== undefined) {
+      if (input.walletAddress?.trim()) {
+        patch.walletAddress = input.walletAddress.toLowerCase();
+        patch.destinationWalletAddress = input.destinationWalletAddress ?? input.walletAddress.toLowerCase();
+        patch.onboardingStatus = "claimed";
+        patch.onboardingMethod = "existing_wallet";
+        patch.claimedAt = nowIso();
+      }
+    }
     if (input.name !== undefined) patch.name = input.name;
     if (input.payType !== undefined) patch.payType = input.payType;
     if (input.rate !== undefined) patch.rateCents = centsFromDollars(input.rate);
@@ -428,6 +478,7 @@ export class PayrollService {
     const employee = requireRecord(this.repository.getEmployee(id), "Recipient not found.");
     this.repository.deactivateEmployee(id);
     this.repository.deleteSessionsByAddress(employee.walletAddress);
+    this.repository.invalidateActiveInviteCodes(id, nowIso());
     return { ok: true };
   }
 
@@ -771,11 +822,16 @@ export class PayrollService {
     };
   }
 
-  private buildPayRunItems(periodStart: string, periodEnd: string, employeeIds?: string[]) {
+  private async buildPayRunItems(periodStart: string, periodEnd: string, employeeIds?: string[]) {
     const employees = (employeeIds?.length
       ? employeeIds.map((employeeId) => requireRecord(this.repository.getEmployee(employeeId), `Employee ${employeeId} not found.`))
       : this.repository.listEmployees()
-    ).filter((employee) => employee.active);
+    ).filter(
+      (employee) =>
+        employee.active &&
+        employee.onboardingStatus === "claimed" &&
+        Boolean(publicWalletAddress(employee.destinationWalletAddress) ?? publicWalletAddress(employee.walletAddress)),
+    );
     const payRuns = this.repository.listPayRuns();
     const payRunItems = this.repository.listPayRunItems();
     const withdrawals = this.repository.listWithdrawals();
@@ -783,7 +839,7 @@ export class PayrollService {
     const holidays = this.repository.listHolidays();
     const approvedTimeOffRequests = this.approvedTimeOffRequests();
     const timeEntries = employees.flatMap((employee) => this.repository.listTimeEntries(employee.id));
-    return buildPayRunItemsPreview(
+    const previews = buildPayRunItemsPreview(
       employees,
       payRuns,
       payRunItems,
@@ -798,6 +854,8 @@ export class PayrollService {
       this.getReferenceDate(),
       this.config.arcChainId,
     ).filter((item) => item.amountCents > 0);
+
+    return Promise.all(previews.map((item) => this.chainService.preparePayRunItem(item)));
   }
 
   private createPayRunItemsRecords(payRunId: string, previews: PayRunItemPreview[]): PayRunItemRecord[] {
@@ -808,6 +866,10 @@ export class PayrollService {
       recipientWalletAddress: item.recipientWalletAddress,
       destinationChainId: item.destinationChainId,
       amountCents: item.amountCents,
+      maxFeeBaseUnits: item.maxFeeBaseUnits,
+      minFinalityThreshold: item.minFinalityThreshold,
+      useForwarder: item.useForwarder,
+      bridgeNonce: null,
       status: item.status,
       txHash: null,
     }));
@@ -822,8 +884,8 @@ export class PayrollService {
     return toPayRunResponse(payRun, this.repository.listPayRunItems(id));
   }
 
-  createPayRun(input: { periodStart: string; periodEnd: string; employeeIds?: string[] }) {
-    const previews = this.buildPayRunItems(input.periodStart, input.periodEnd, input.employeeIds);
+  async createPayRun(input: { periodStart: string; periodEnd: string; employeeIds?: string[] }) {
+    const previews = await this.buildPayRunItems(input.periodStart, input.periodEnd, input.employeeIds);
     if (previews.length === 0) {
       throw new Error("Add at least one active recipient before creating a treasury pay run.");
     }
@@ -847,13 +909,13 @@ export class PayrollService {
     return toPayRunResponse(payRun, items);
   }
 
-  updatePayRun(id: string, input: Partial<{ periodStart: string; periodEnd: string; employeeIds: string[] }>) {
+  async updatePayRun(id: string, input: Partial<{ periodStart: string; periodEnd: string; employeeIds: string[] }>) {
     const payRun = requireRecord(this.repository.getPayRun(id), "Pay run not found.");
     if (payRun.status === "executed") throw new Error("Executed pay runs cannot be edited.");
 
     const periodStart = input.periodStart ?? payRun.periodStart;
     const periodEnd = input.periodEnd ?? payRun.periodEnd;
-    const previews = this.buildPayRunItems(periodStart, periodEnd, input.employeeIds);
+    const previews = await this.buildPayRunItems(periodStart, periodEnd, input.employeeIds);
     if (previews.length === 0) {
       throw new Error("A treasury pay run must contain at least one active recipient.");
     }
@@ -872,7 +934,7 @@ export class PayrollService {
     const payRun = requireRecord(this.repository.getPayRun(id), "Pay run not found.");
     if (payRun.status !== "draft") throw new Error("Only draft pay runs can be approved.");
     const employeeIds = this.repository.listPayRunItems(id).map((item) => item.employeeId);
-    const refreshedPreviews = this.buildPayRunItems(payRun.periodStart, payRun.periodEnd, employeeIds);
+    const refreshedPreviews = await this.buildPayRunItems(payRun.periodStart, payRun.periodEnd, employeeIds);
     if (refreshedPreviews.length === 0) {
       throw new Error("A treasury pay run must contain at least one payable recipient before approval.");
     }
@@ -953,8 +1015,8 @@ export class PayrollService {
     const execution = await this.chainService.executePayRun({
       ...payRun,
       onChainId,
-    });
-    const hasCrossChainItems = items.some((item) => item.destinationChainId !== this.config.arcChainId);
+    }, items);
+    const hasCrossChainItems = items.some((item) => item.destinationChainId !== ARC_TESTNET_CCTP_DOMAIN);
 
     if (this.config.chainMode !== "live") {
       const hub = this.getHubBalance();
@@ -963,10 +1025,12 @@ export class PayrollService {
     }
 
     for (const item of items) {
-      const isArcItem = item.destinationChainId === this.config.arcChainId;
+      const isArcItem = item.destinationChainId === ARC_TESTNET_CCTP_DOMAIN;
+      const crossChainMessage = execution.crossChainMessages.find((message) => message.itemId === item.id);
       this.repository.updatePayRunItem(item.id, {
         status: isArcItem ? "paid" : "processing",
-        txHash: isArcItem ? execution.txHash : `bridge-${execution.txHash}`,
+        txHash: execution.txHash,
+        bridgeNonce: isArcItem ? null : crossChainMessage?.nonce ?? null,
       });
     }
 
@@ -985,20 +1049,21 @@ export class PayrollService {
     const payRun = requireRecord(this.repository.getPayRun(id), "Pay run not found.");
     if (payRun.status !== "processing") throw new Error("Only processing pay runs can be finalized.");
 
-    await this.chainService.finalizePayRun(payRun);
+    const items = this.repository.listPayRunItems(id);
+    const result = await this.chainService.finalizePayRun(payRun, items);
 
-    for (const item of this.repository.listPayRunItems(id)) {
-      if (item.status !== "paid") {
-        this.repository.updatePayRunItem(item.id, {
-          status: "paid",
-        });
-      }
+    for (const update of result.itemUpdates) {
+      this.repository.updatePayRunItem(update.itemId, {
+        status: update.status,
+        txHash: update.txHash,
+      });
     }
 
     const updated = requireRecord(this.repository.updatePayRun(id, {
-      status: "executed",
-      executedAt: nowIso(),
+      status: result.status,
+      executedAt: result.status === "executed" ? nowIso() : null,
       updatedAt: nowIso(),
+      txHash: result.txHash ?? payRun.txHash,
     }), "Pay run not found.");
 
     return toPayRunResponse(updated, this.repository.listPayRunItems(id));
@@ -1145,7 +1210,7 @@ export class PayrollService {
     return { ran: true, txHash: result.txHash, amount: dollarsFromCents(idleAmount) };
   }
 
-  runPolicyEngine() {
+  async runPolicyEngine() {
     const today = this.getReferenceDate();
     const { periodStart, periodEnd } = currentSemimonthlyPeriod(today);
     const existing = this.repository.listPayRuns().find((payRun) => payRun.periodStart === periodStart && payRun.periodEnd === periodEnd);
@@ -1157,7 +1222,7 @@ export class PayrollService {
       return { created: false, payRunId: null };
     }
 
-    const payRun = this.createPayRun({ periodStart, periodEnd });
+    const payRun = await this.createPayRun({ periodStart, periodEnd });
     this.repository.updatePolicy(policy.id, { lastRunAt: nowIso() });
     return { created: true, payRunId: payRun.id };
   }

@@ -5,8 +5,18 @@ import { usePayroll } from "@/components/PayrollProvider";
 import type { PayType, Recipient, TimeTrackingMode } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
+import { publicConfig } from "@/lib/publicConfig";
 
-type RecipientFormState = Omit<Recipient, "id" | "employmentStartDate"> & {
+type RecipientFormState = {
+  walletAddress: string;
+  name: string;
+  payType: PayType;
+  rate: number;
+  chainPreference: string | null;
+  destinationChainId?: number | null;
+  destinationWalletAddress?: string | null;
+  timeTrackingMode: TimeTrackingMode;
+  scheduleId?: string | null;
   employmentStartDate: string;
 };
 
@@ -50,12 +60,18 @@ function formatCurrency(value: number) {
 }
 
 export default function RecipientsPage() {
-  const { recipients, schedules, addRecipient, updateRecipient, deleteRecipient, getRecipientMetrics, loading, error } = usePayroll();
+  const { recipients, schedules, addRecipient, updateRecipient, deleteRecipient, createRecipientAccessCode, getRecipientMetrics, loading, error } = usePayroll();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [issuingInviteId, setIssuingInviteId] = useState<string | null>(null);
+  const [generatedInvite, setGeneratedInvite] = useState<{
+    code: string;
+    name: string;
+    expiresAt: string;
+  } | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipient);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -68,6 +84,7 @@ export default function RecipientsPage() {
   const openAddForm = () => {
     setMessage(null);
     setDeleteError(null);
+    setGeneratedInvite(null);
     setEditingId(null);
     setFormState(emptyRecipient);
     setShowForm(true);
@@ -76,13 +93,14 @@ export default function RecipientsPage() {
   const openEditForm = (recipient: Recipient) => {
     setMessage(null);
     setDeleteError(null);
+    setGeneratedInvite(null);
     setEditingId(recipient.id);
     setFormState({
-      walletAddress: recipient.walletAddress,
+      walletAddress: recipient.walletAddress ?? "",
       name: recipient.name,
       payType: recipient.payType,
       rate: recipient.rate,
-      chainPreference: recipient.chainPreference,
+      chainPreference: recipient.chainPreference ?? null,
       timeTrackingMode: recipient.timeTrackingMode,
       scheduleId: recipient.scheduleId,
       employmentStartDate: recipient.employmentStartDate ?? "",
@@ -91,12 +109,13 @@ export default function RecipientsPage() {
   };
 
   const saveRecipient = async () => {
-    if (!formState.name.trim() || !formState.walletAddress.trim()) return;
+    if (!formState.name.trim()) return;
     setIsSaving(true);
     setDeleteError(null);
     try {
       const payload = {
         ...formState,
+        walletAddress: formState.walletAddress.trim() || null,
         employmentStartDate: formState.employmentStartDate || null,
       };
       if (editingId) {
@@ -134,6 +153,25 @@ export default function RecipientsPage() {
     }
   };
 
+  const handleIssueAccessCode = async (recipient: Recipient) => {
+    setIssuingInviteId(recipient.id);
+    setDeleteError(null);
+    setMessage(null);
+    try {
+      const invite = await createRecipientAccessCode(recipient.id);
+      setGeneratedInvite({
+        code: invite.code,
+        name: recipient.name,
+        expiresAt: invite.invite.expiresAt,
+      });
+      setMessage("One-time onboarding code generated.");
+    } catch (inviteError) {
+      setDeleteError(inviteError instanceof Error ? inviteError.message : "Failed to generate access code.");
+    } finally {
+      setIssuingInviteId(null);
+    }
+  };
+
   if (loading && recipients.length === 0) {
     return <div className="text-sm text-slate-500">Loading recipients…</div>;
   }
@@ -161,6 +199,21 @@ export default function RecipientsPage() {
       {message && (
         <Card className="border-emerald-200 bg-emerald-50/40 p-4">
           <p className="text-sm font-semibold text-emerald-800">{message}</p>
+          {generatedInvite && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-emerald-700">
+                {generatedInvite.name} can redeem this once until {new Date(generatedInvite.expiresAt).toLocaleString()}.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm">
+                  {generatedInvite.code}
+                </code>
+                <code className="rounded-md bg-white px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  {publicConfig.appUrl}/onboarding?code={generatedInvite.code}
+                </code>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
@@ -184,7 +237,7 @@ export default function RecipientsPage() {
                 {editingId ? "Edit Recipient" : "Add New Recipient"}
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Capture payroll type, wallet, preferred chain, and tracking mode for the employee record.
+                Capture payroll type, preferred chain, and tracking mode. Leave wallet blank to require invite-based onboarding.
               </p>
             </div>
             <button
@@ -208,7 +261,7 @@ export default function RecipientsPage() {
               type="text"
               value={formState.walletAddress}
               onChange={(event) => setFormState({ ...formState, walletAddress: event.target.value })}
-              placeholder="Wallet address (0x...)"
+              placeholder="Wallet address (optional)"
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <select
@@ -289,6 +342,7 @@ export default function RecipientsPage() {
               <tr className="border-b border-slate-100">
                 <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Recipient</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Wallet</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Onboarding</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Type</th>
                 <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Rate</th>
                 <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Available Now</th>
@@ -316,7 +370,25 @@ export default function RecipientsPage() {
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-slate-400">
-                      {recipient.walletAddress.slice(0, 6)}...{recipient.walletAddress.slice(-4)}
+                      {recipient.walletAddress
+                        ? `${recipient.walletAddress.slice(0, 6)}...${recipient.walletAddress.slice(-4)}`
+                        : "Pending claim"}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3.5">
+                      <div className="space-y-1">
+                        <Badge variant={recipient.onboardingStatus === "claimed" ? "info" : "warning"}>
+                          {recipient.onboardingStatus === "claimed" ? "Claimed" : "Awaiting claim"}
+                        </Badge>
+                        <p className="text-xs text-slate-400">
+                          {recipient.onboardingStatus === "claimed"
+                            ? recipient.onboardingMethod === "circle"
+                              ? "Circle wallet"
+                              : "Existing wallet"
+                            : recipient.activeInvite
+                              ? `Code live until ${new Date(recipient.activeInvite.expiresAt).toLocaleDateString()}`
+                              : "No active code"}
+                        </p>
+                      </div>
                     </td>
                     <td className="whitespace-nowrap px-5 py-3.5">
                       <Badge variant={payTypeVariant(recipient.payType)}>{payTypeLabel(recipient.payType)}</Badge>
@@ -344,6 +416,18 @@ export default function RecipientsPage() {
                       >
                         Edit
                       </button>
+                      {recipient.onboardingStatus !== "claimed" && (
+                        <button
+                          type="button"
+                          disabled={issuingInviteId === recipient.id}
+                          onClick={() => {
+                            void handleIssueAccessCode(recipient);
+                          }}
+                          className="rounded-md px-2.5 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                        >
+                          {issuingInviteId === recipient.id ? "Generating…" : "Access Code"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={deletingId === recipient.id}

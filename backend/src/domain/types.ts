@@ -4,6 +4,8 @@ export type TimeTrackingMode = "check_in_out" | "schedule_based";
 export type PayRunStatus = "draft" | "approved" | "processing" | "executed" | "failed";
 export type PolicyStatus = "active" | "paused";
 export type PolicyType = "payday" | "treasury_threshold" | "manual";
+export type OnboardingStatus = "unclaimed" | "claimed";
+export type OnboardingMethod = "existing_wallet" | "circle" | null;
 
 export interface CompanyRecord {
   id: string;
@@ -40,6 +42,11 @@ export interface EmployeeRecord {
   scheduleId: string | null;
   timeTrackingMode: TimeTrackingMode;
   employmentStartDate: string | null;
+  onboardingStatus: OnboardingStatus;
+  onboardingMethod: OnboardingMethod;
+  claimedAt: string | null;
+  circleUserId: string | null;
+  circleWalletId: string | null;
   active: boolean;
 }
 
@@ -90,6 +97,10 @@ export interface PayRunItemRecord {
   recipientWalletAddress: string;
   destinationChainId: number;
   amountCents: number;
+  maxFeeBaseUnits: number;
+  minFinalityThreshold: number;
+  useForwarder: boolean;
+  bridgeNonce: string | null;
   status: string;
   txHash: string | null;
 }
@@ -145,6 +156,16 @@ export interface AuthChallengeRecord {
   expiresAt: string;
 }
 
+export interface EmployeeInviteCodeRecord {
+  id: string;
+  employeeId: string;
+  codeHash: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+}
+
 export interface RecipientMetrics {
   currentPeriodEarnedCents: number;
   ytdEarnedCents: number;
@@ -164,6 +185,9 @@ export interface PayRunItemPreview {
   recipientWalletAddress: string;
   destinationChainId: number;
   amountCents: number;
+  maxFeeBaseUnits: number;
+  minFinalityThreshold: number;
+  useForwarder: boolean;
   status: string;
 }
 

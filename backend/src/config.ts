@@ -14,6 +14,14 @@ export interface LiveChainConfig {
   stableFxApiKey?: string;
 }
 
+export interface CircleConfig {
+  apiBaseUrl: string;
+  apiKey: string;
+  appId: string;
+  walletBlockchain: string;
+  accountType: "EOA" | "SCA";
+}
+
 export interface AppConfig {
   host: string;
   port: number;
@@ -29,6 +37,7 @@ export interface AppConfig {
   chainMode: ChainMode;
   referenceNowOverride?: string;
   liveChain?: LiveChainConfig;
+  circle?: CircleConfig;
 }
 
 function parseNumber(value: string | undefined, fallback: number) {
@@ -107,6 +116,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       usycAddress,
       usycTellerAddress,
       stableFxApiKey,
+    };
+  }
+
+  const circleApiKey = env.CIRCLE_API_KEY?.trim();
+  const circleAppId = env.CIRCLE_APP_ID?.trim();
+  if (circleApiKey && circleAppId) {
+    config.circle = {
+      apiBaseUrl: env.CIRCLE_API_BASE_URL?.trim() || "https://api.circle.com",
+      apiKey: circleApiKey,
+      appId: circleAppId,
+      walletBlockchain: env.CIRCLE_WALLET_BLOCKCHAIN?.trim() || "ARC-TESTNET",
+      accountType: env.CIRCLE_ACCOUNT_TYPE?.trim().toUpperCase() === "SCA" ? "SCA" : "EOA",
     };
   }
 

@@ -8,7 +8,7 @@ class JobService {
     }
     async runScheduledTasks() {
         const autoRebalance = await this.payrollService.runAutoRebalanceJob();
-        const policyEngine = this.payrollService.runPolicyEngine();
+        const policyEngine = await this.payrollService.runPolicyEngine();
         return { autoRebalance, policyEngine };
     }
 }

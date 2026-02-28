@@ -10,6 +10,7 @@ const zod_1 = require("zod");
 const repository_1 = require("./repository");
 const authService_1 = require("./services/authService");
 const chainService_1 = require("./services/chainService");
+const circleWalletService_1 = require("./services/circleWalletService");
 const jobService_1 = require("./services/jobService");
 const payrollService_1 = require("./services/payrollService");
 const dates_1 = require("./lib/dates");
@@ -21,7 +22,7 @@ class HttpError extends Error {
     }
 }
 const recipientSchema = zod_1.z.object({
-    walletAddress: zod_1.z.string().min(1),
+    walletAddress: zod_1.z.string().min(1).nullable().optional(),
     name: zod_1.z.string().min(1),
     payType: zod_1.z.enum(["yearly", "daily", "hourly"]),
     rate: zod_1.z.number().nonnegative(),
@@ -91,6 +92,20 @@ const employeeTimeOffUpdateSchema = zod_1.z.object({
 const adminTimeOffReviewSchema = zod_1.z.object({
     status: zod_1.z.enum(["approved", "rejected", "cancelled"]),
 });
+const onboardingCodeSchema = zod_1.z.object({
+    code: zod_1.z.string().min(6),
+});
+const onboardingWalletChallengeSchema = onboardingCodeSchema.extend({
+    address: zod_1.z.string().min(1),
+});
+const onboardingWalletClaimSchema = onboardingCodeSchema.extend({
+    address: zod_1.z.string().min(1),
+    message: zod_1.z.string().min(1),
+    signature: zod_1.z.string().startsWith("0x"),
+});
+const onboardingCircleCompleteSchema = onboardingCodeSchema.extend({
+    userToken: zod_1.z.string().min(1),
+});
 async function getSessionOrThrow(request, authService, requiredRole) {
     const authorization = request.headers.authorization;
     if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
@@ -114,7 +129,8 @@ function buildApp(config) {
     });
     const chainService = new chainService_1.ChainService(config);
     const payrollService = new payrollService_1.PayrollService(repository, config, chainService);
-    const authService = new authService_1.AuthService(repository, config);
+    const circleWalletService = new circleWalletService_1.CircleWalletService(config);
+    const authService = new authService_1.AuthService(repository, config, circleWalletService);
     const jobService = new jobService_1.JobService(payrollService);
     const app = (0, fastify_1.default)({ logger: false });
     void app.register(cors_1.default, {
@@ -148,6 +164,7 @@ function buildApp(config) {
         ok: true,
         mode: config.chainMode,
         stableFxConfigured: Boolean(config.liveChain?.stableFxApiKey),
+        circleConfigured: circleWalletService.isConfigured(),
     }));
     app.post("/auth/challenge", async (request) => {
         const body = zod_1.z.object({ address: zod_1.z.string().min(1) }).parse(request.body ?? {});
@@ -188,6 +205,43 @@ function buildApp(config) {
         await getSessionOrThrow(request, authService, "admin");
         const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
         return payrollService.deleteRecipient(params.id);
+    });
+    app.post("/recipients/:id/access-code", async (request) => {
+        const session = await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        return authService.createRecipientAccessCode(params.id, session.address, (0, dates_1.nowIso)());
+    });
+    app.post("/onboarding/redeem", async (request) => {
+        return authService.redeemInviteCode(onboardingCodeSchema.parse(request.body ?? {}).code, (0, dates_1.nowIso)());
+    });
+    app.post("/onboarding/wallet/challenge", async (request) => {
+        const body = onboardingWalletChallengeSchema.parse(request.body ?? {});
+        return authService.issueWalletClaimChallenge({
+            code: body.code,
+            address: body.address,
+            nowIso: (0, dates_1.nowIso)(),
+        });
+    });
+    app.post("/onboarding/wallet/claim", async (request) => {
+        const body = onboardingWalletClaimSchema.parse(request.body ?? {});
+        return authService.claimInviteWithWallet({
+            code: body.code,
+            address: body.address,
+            message: body.message,
+            signature: body.signature,
+            nowIso: (0, dates_1.nowIso)(),
+        });
+    });
+    app.post("/onboarding/circle/start", async (request) => {
+        return authService.startCircleOnboarding(onboardingCodeSchema.parse(request.body ?? {}).code, (0, dates_1.nowIso)());
+    });
+    app.post("/onboarding/circle/complete", async (request) => {
+        const body = onboardingCircleCompleteSchema.parse(request.body ?? {});
+        return authService.completeCircleOnboarding({
+            code: body.code,
+            userToken: body.userToken,
+            nowIso: (0, dates_1.nowIso)(),
+        });
     });
     app.get("/schedules", async () => payrollService.listSchedules());
     app.post("/schedules", async (request) => {
@@ -358,6 +412,7 @@ function buildApp(config) {
             payrollService,
             jobService,
             chainService,
+            circleWalletService,
         },
     };
 }

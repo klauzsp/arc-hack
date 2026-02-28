@@ -58,6 +58,41 @@ export interface AuthVerifyResponse {
   employee: Recipient | null;
 }
 
+export interface InviteCodeResponse {
+  code: string;
+  invite: {
+    id: string;
+    employeeId: string;
+    createdAt: string;
+    expiresAt: string;
+  };
+  employee: Recipient;
+}
+
+export interface OnboardingRedeemResponse {
+  employee: Recipient;
+  invite: {
+    id: string;
+    createdAt: string;
+    expiresAt: string;
+  };
+  options: {
+    existingWallet: boolean;
+    circleWallet: boolean;
+  };
+}
+
+export interface CircleOnboardingStartResponse {
+  employee: Recipient;
+  circle: {
+    appId: string;
+    userToken: string;
+    encryptionKey: string;
+    challengeId: string | null;
+    walletAddress: string | null;
+  };
+}
+
 export interface MeResponse {
   role: Role;
   employee: Recipient | null;
@@ -155,7 +190,19 @@ export interface AdminTimeOffResponse {
   requests: TimeOffRequest[];
 }
 
-export type RecipientPayload = Omit<Recipient, "id">;
+export type RecipientPayload = {
+  walletAddress?: string | null;
+  name: string;
+  payType: Recipient["payType"];
+  rate: number;
+  chainPreference?: string | null;
+  destinationChainId?: number | null;
+  destinationWalletAddress?: string | null;
+  scheduleId?: string | null;
+  timeTrackingMode: Recipient["timeTrackingMode"];
+  employmentStartDate?: string | null;
+  active?: boolean;
+};
 
 export const api = {
   baseUrl: API_BASE_URL,
@@ -184,10 +231,41 @@ export const api = {
       method: "DELETE",
       token,
     }),
+  createRecipientAccessCode: (token: string, id: string) =>
+    request<InviteCodeResponse>(`/recipients/${id}/access-code`, {
+      method: "POST",
+      token,
+      body: {},
+    }),
   updateRecipient: (token: string, id: string, payload: Partial<RecipientPayload>) =>
     request<Recipient>(`/recipients/${id}`, {
       method: "PATCH",
       token,
+      body: payload,
+    }),
+  redeemOnboardingCode: (code: string) =>
+    request<OnboardingRedeemResponse>("/onboarding/redeem", {
+      method: "POST",
+      body: { code },
+    }),
+  createOnboardingWalletChallenge: (payload: { code: string; address: string }) =>
+    request<AuthChallengeResponse>("/onboarding/wallet/challenge", {
+      method: "POST",
+      body: payload,
+    }),
+  claimOnboardingWallet: (payload: { code: string; address: string; message: string; signature: `0x${string}` }) =>
+    request<AuthVerifyResponse>("/onboarding/wallet/claim", {
+      method: "POST",
+      body: payload,
+    }),
+  startCircleOnboarding: (code: string) =>
+    request<CircleOnboardingStartResponse>("/onboarding/circle/start", {
+      method: "POST",
+      body: { code },
+    }),
+  completeCircleOnboarding: (payload: { code: string; userToken: string }) =>
+    request<AuthVerifyResponse>("/onboarding/circle/complete", {
+      method: "POST",
       body: payload,
     }),
   getSchedules: () => request<Schedule[]>("/schedules"),

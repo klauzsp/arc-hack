@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { normalizeLegacyDestination } from "./lib/cctp";
 import { createSeedPayload } from "./domain/seeds";
 import type {
   AuthChallengeRecord,
   CompanyRecord,
   EmployeeRecord,
+  EmployeeInviteCodeRecord,
   HolidayRecord,
   PayRunItemRecord,
   PayRunRecord,
@@ -82,13 +84,19 @@ function mapEmployee(row: Record<string, unknown>): EmployeeRecord {
     payType: row.pay_type as EmployeeRecord["payType"],
     rateCents: toNumber(row.rate_cents),
     chainPreference: row.chain_preference == null ? null : String(row.chain_preference),
-    destinationChainId: row.destination_chain_id == null ? null : toNumber(row.destination_chain_id),
+    destinationChainId:
+      row.destination_chain_id == null ? null : normalizeLegacyDestination(toNumber(row.destination_chain_id)),
     destinationWalletAddress:
       row.destination_wallet_address == null ? null : String(row.destination_wallet_address),
     scheduleId: row.schedule_id == null ? null : String(row.schedule_id),
     timeTrackingMode: row.time_tracking_mode as EmployeeRecord["timeTrackingMode"],
     employmentStartDate:
       row.employment_start_date == null ? null : String(row.employment_start_date),
+    onboardingStatus: (row.onboarding_status as EmployeeRecord["onboardingStatus"]) ?? "claimed",
+    onboardingMethod: (row.onboarding_method as EmployeeRecord["onboardingMethod"]) ?? "existing_wallet",
+    claimedAt: row.claimed_at == null ? null : String(row.claimed_at),
+    circleUserId: row.circle_user_id == null ? null : String(row.circle_user_id),
+    circleWalletId: row.circle_wallet_id == null ? null : String(row.circle_wallet_id),
     active: toBoolean(row.active),
   };
 }
@@ -135,8 +143,12 @@ function mapPayRunItem(row: Record<string, unknown>): PayRunItemRecord {
     payRunId: String(row.pay_run_id),
     employeeId: String(row.employee_id),
     recipientWalletAddress: String(row.recipient_wallet_address),
-    destinationChainId: toNumber(row.destination_chain_id),
+    destinationChainId: normalizeLegacyDestination(toNumber(row.destination_chain_id)) ?? 0,
     amountCents: toNumber(row.amount_cents),
+    maxFeeBaseUnits: toNumber(row.max_fee_base_units),
+    minFinalityThreshold: toNumber(row.min_finality_threshold),
+    useForwarder: toBoolean(row.use_forwarder),
+    bridgeNonce: row.bridge_nonce == null ? null : String(row.bridge_nonce),
     status: String(row.status),
     txHash: row.tx_hash == null ? null : String(row.tx_hash),
   };
@@ -160,6 +172,18 @@ function mapChallenge(row: Record<string, unknown>): AuthChallengeRecord {
     nonce: String(row.nonce),
     message: String(row.message),
     expiresAt: String(row.expires_at),
+  };
+}
+
+function mapEmployeeInviteCode(row: Record<string, unknown>): EmployeeInviteCodeRecord {
+  return {
+    id: String(row.id),
+    employeeId: String(row.employee_id),
+    codeHash: String(row.code_hash),
+    createdBy: String(row.created_by),
+    createdAt: String(row.created_at),
+    expiresAt: String(row.expires_at),
+    usedAt: row.used_at == null ? null : String(row.used_at),
   };
 }
 
@@ -266,6 +290,11 @@ export class PayrollRepository {
         schedule_id TEXT,
         time_tracking_mode TEXT NOT NULL,
         employment_start_date TEXT,
+        onboarding_status TEXT NOT NULL DEFAULT 'claimed',
+        onboarding_method TEXT,
+        claimed_at TEXT,
+        circle_user_id TEXT,
+        circle_wallet_id TEXT,
         active INTEGER NOT NULL
       );
 
@@ -306,6 +335,10 @@ export class PayrollRepository {
         recipient_wallet_address TEXT NOT NULL,
         destination_chain_id INTEGER NOT NULL,
         amount_cents INTEGER NOT NULL,
+        max_fee_base_units INTEGER NOT NULL DEFAULT 0,
+        min_finality_threshold INTEGER NOT NULL DEFAULT 2000,
+        use_forwarder INTEGER NOT NULL DEFAULT 0,
+        bridge_nonce TEXT,
         status TEXT NOT NULL,
         tx_hash TEXT
       );
@@ -359,6 +392,16 @@ export class PayrollRepository {
         reviewed_at TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS employee_invite_codes (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        code_hash TEXT NOT NULL UNIQUE,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT
+      );
+
       CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays(date);
       CREATE INDEX IF NOT EXISTS idx_time_entries_employee_date ON time_entries(employee_id, date);
       CREATE INDEX IF NOT EXISTS idx_pay_runs_period_start ON pay_runs(period_start DESC);
@@ -369,11 +412,22 @@ export class PayrollRepository {
       CREATE INDEX IF NOT EXISTS idx_withdrawals_employee_period ON withdrawals(employee_id, period_start, period_end);
       CREATE INDEX IF NOT EXISTS idx_time_off_requests_employee_date ON time_off_requests(employee_id, date);
       CREATE INDEX IF NOT EXISTS idx_time_off_requests_status_date ON time_off_requests(status, date);
+      CREATE INDEX IF NOT EXISTS idx_employee_invite_codes_employee_id ON employee_invite_codes(employee_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_employee_invite_codes_expires_at ON employee_invite_codes(expires_at);
     `);
 
     this.ensureColumn("employees", "employment_start_date", "TEXT");
     this.ensureColumn("companies", "max_time_off_days_per_year", "INTEGER NOT NULL DEFAULT 20");
     this.ensureColumn("schedules", "start_time", "TEXT NOT NULL DEFAULT '09:00'");
+    this.ensureColumn("employees", "onboarding_status", "TEXT NOT NULL DEFAULT 'claimed'");
+    this.ensureColumn("employees", "onboarding_method", "TEXT");
+    this.ensureColumn("employees", "claimed_at", "TEXT");
+    this.ensureColumn("employees", "circle_user_id", "TEXT");
+    this.ensureColumn("employees", "circle_wallet_id", "TEXT");
+    this.ensureColumn("pay_run_items", "max_fee_base_units", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("pay_run_items", "min_finality_threshold", "INTEGER NOT NULL DEFAULT 2000");
+    this.ensureColumn("pay_run_items", "use_forwarder", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("pay_run_items", "bridge_nonce", "TEXT");
   }
 
   private ensureColumn(table: string, column: string, definition: string) {
@@ -402,10 +456,43 @@ export class PayrollRepository {
     });
   }
 
+  private normalizeLegacyDestinationIds() {
+    const normalize = this.db.prepare(
+      "UPDATE employees SET destination_chain_id = ? WHERE destination_chain_id = ?",
+    );
+    const normalizeItems = this.db.prepare(
+      "UPDATE pay_run_items SET destination_chain_id = ? WHERE destination_chain_id = ?",
+    );
+
+    const rows = this.db.prepare("SELECT DISTINCT destination_chain_id FROM employees WHERE destination_chain_id IS NOT NULL").all() as Array<Record<string, unknown>>;
+    const itemRows = this.db.prepare("SELECT DISTINCT destination_chain_id FROM pay_run_items").all() as Array<Record<string, unknown>>;
+    for (const row of [...rows, ...itemRows]) {
+      const current = toNumber(row.destination_chain_id);
+      const normalized = normalizeLegacyDestination(current);
+      if (normalized == null || normalized === current) continue;
+      normalize.run(normalized, current);
+      normalizeItems.run(normalized, current);
+    }
+  }
+
+  private backfillOnboardingDefaults() {
+    this.db.prepare(
+      "UPDATE employees SET onboarding_status = 'claimed' WHERE onboarding_status IS NULL OR onboarding_status = ''",
+    ).run();
+    this.db.prepare(
+      `UPDATE employees
+       SET onboarding_method = 'existing_wallet'
+       WHERE onboarding_method IS NULL
+         AND (wallet_address LIKE '0x%' OR destination_wallet_address LIKE '0x%')`,
+    ).run();
+  }
+
   initialize(seedInput: { companyId: string; companyName: string; today: string; arcChainId: number }) {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM companies").get() as Record<string, unknown>;
     if (toNumber(row.count) > 0) {
       this.removeDemoPayRuns();
+      this.normalizeLegacyDestinationIds();
+      this.backfillOnboardingDefaults();
       return;
     }
 
@@ -464,8 +551,9 @@ export class PayrollRepository {
       const insertEmployee = this.db.prepare(
         `INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
-          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date,
+          onboarding_status, onboarding_method, claimed_at, circle_user_id, circle_wallet_id, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const employee of payload.employees) {
         insertEmployee.run(
@@ -482,6 +570,11 @@ export class PayrollRepository {
           employee.scheduleId,
           employee.timeTrackingMode,
           employee.employmentStartDate,
+          employee.onboardingStatus,
+          employee.onboardingMethod,
+          employee.claimedAt,
+          employee.circleUserId,
+          employee.circleWalletId,
           Number(employee.active),
         );
       }
@@ -531,8 +624,9 @@ export class PayrollRepository {
 
       const insertPayRunItem = this.db.prepare(
         `INSERT INTO pay_run_items (
-          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents, status, tx_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents,
+          max_fee_base_units, min_finality_threshold, use_forwarder, bridge_nonce, status, tx_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const item of payload.payRunItems) {
         insertPayRunItem.run(
@@ -542,6 +636,10 @@ export class PayrollRepository {
           item.recipientWalletAddress,
           item.destinationChainId,
           item.amountCents,
+          item.maxFeeBaseUnits,
+          item.minFinalityThreshold,
+          Number(item.useForwarder),
+          item.bridgeNonce,
           item.status,
           item.txHash,
         );
@@ -602,6 +700,8 @@ export class PayrollRepository {
     });
 
     this.removeDemoPayRuns();
+    this.normalizeLegacyDestinationIds();
+    this.backfillOnboardingDefaults();
   }
 
   getCompany() {
@@ -735,8 +835,9 @@ export class PayrollRepository {
       .prepare(
         `INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
-          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date, active
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, employment_start_date,
+          onboarding_status, onboarding_method, claimed_at, circle_user_id, circle_wallet_id, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         employee.id,
@@ -752,6 +853,11 @@ export class PayrollRepository {
         employee.scheduleId,
         employee.timeTrackingMode,
         employee.employmentStartDate,
+        employee.onboardingStatus,
+        employee.onboardingMethod,
+        employee.claimedAt,
+        employee.circleUserId,
+        employee.circleWalletId,
         Number(employee.active),
       );
     return employee;
@@ -766,7 +872,8 @@ export class PayrollRepository {
         `UPDATE employees
          SET company_id = ?, wallet_address = ?, name = ?, role = ?, pay_type = ?, rate_cents = ?,
              chain_preference = ?, destination_chain_id = ?, destination_wallet_address = ?, schedule_id = ?,
-             time_tracking_mode = ?, employment_start_date = ?, active = ?
+             time_tracking_mode = ?, employment_start_date = ?, onboarding_status = ?, onboarding_method = ?,
+             claimed_at = ?, circle_user_id = ?, circle_wallet_id = ?, active = ?
          WHERE id = ?`,
       )
       .run(
@@ -782,6 +889,11 @@ export class PayrollRepository {
         next.scheduleId,
         next.timeTrackingMode,
         next.employmentStartDate,
+        next.onboardingStatus,
+        next.onboardingMethod,
+        next.claimedAt,
+        next.circleUserId,
+        next.circleWalletId,
         Number(next.active),
         id,
       );
@@ -921,8 +1033,9 @@ export class PayrollRepository {
 
       const insertItem = this.db.prepare(
         `INSERT INTO pay_run_items (
-          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents, status, tx_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents,
+          max_fee_base_units, min_finality_threshold, use_forwarder, bridge_nonce, status, tx_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const item of items) {
         insertItem.run(
@@ -932,6 +1045,10 @@ export class PayrollRepository {
           item.recipientWalletAddress,
           item.destinationChainId,
           item.amountCents,
+          item.maxFeeBaseUnits,
+          item.minFinalityThreshold,
+          Number(item.useForwarder),
+          item.bridgeNonce,
           item.status,
           item.txHash,
         );
@@ -972,8 +1089,9 @@ export class PayrollRepository {
       this.db.prepare("DELETE FROM pay_run_items WHERE pay_run_id = ?").run(payRunId);
       const insertItem = this.db.prepare(
         `INSERT INTO pay_run_items (
-          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents, status, tx_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents,
+          max_fee_base_units, min_finality_threshold, use_forwarder, bridge_nonce, status, tx_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const item of items) {
         insertItem.run(
@@ -983,6 +1101,10 @@ export class PayrollRepository {
           item.recipientWalletAddress,
           item.destinationChainId,
           item.amountCents,
+          item.maxFeeBaseUnits,
+          item.minFinalityThreshold,
+          Number(item.useForwarder),
+          item.bridgeNonce,
           item.status,
           item.txHash,
         );
@@ -1009,7 +1131,8 @@ export class PayrollRepository {
       .prepare(
         `UPDATE pay_run_items
          SET pay_run_id = ?, employee_id = ?, recipient_wallet_address = ?, destination_chain_id = ?,
-             amount_cents = ?, status = ?, tx_hash = ?
+             amount_cents = ?, max_fee_base_units = ?, min_finality_threshold = ?, use_forwarder = ?,
+             bridge_nonce = ?, status = ?, tx_hash = ?
          WHERE id = ?`,
       )
       .run(
@@ -1018,6 +1141,10 @@ export class PayrollRepository {
         next.recipientWalletAddress,
         next.destinationChainId,
         next.amountCents,
+        next.maxFeeBaseUnits,
+        next.minFinalityThreshold,
+        Number(next.useForwarder),
+        next.bridgeNonce,
         next.status,
         next.txHash,
         id,
@@ -1088,6 +1215,65 @@ export class PayrollRepository {
 
   deleteChallenge(address: string) {
     this.db.prepare("DELETE FROM auth_challenges WHERE address = ?").run(address);
+  }
+
+  createEmployeeInviteCode(record: EmployeeInviteCodeRecord) {
+    this.db
+      .prepare(
+        `INSERT INTO employee_invite_codes (
+          id, employee_id, code_hash, created_by, created_at, expires_at, used_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        record.id,
+        record.employeeId,
+        record.codeHash,
+        record.createdBy,
+        record.createdAt,
+        record.expiresAt,
+        record.usedAt,
+      );
+    return record;
+  }
+
+  listEmployeeInviteCodes(employeeId?: string) {
+    const rows = employeeId
+      ? (this.db
+          .prepare("SELECT * FROM employee_invite_codes WHERE employee_id = ? ORDER BY created_at DESC")
+          .all(employeeId) as Record<string, unknown>[])
+      : (this.db
+          .prepare("SELECT * FROM employee_invite_codes ORDER BY created_at DESC")
+          .all() as Record<string, unknown>[]);
+    return rows.map(mapEmployeeInviteCode);
+  }
+
+  getEmployeeInviteCodeByHash(codeHash: string) {
+    const row = this.db
+      .prepare("SELECT * FROM employee_invite_codes WHERE code_hash = ? LIMIT 1")
+      .get(codeHash) as Record<string, unknown> | undefined;
+    return row ? mapEmployeeInviteCode(row) : null;
+  }
+
+  getActiveEmployeeInviteCode(employeeId: string, nowIso: string) {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM employee_invite_codes
+         WHERE employee_id = ? AND used_at IS NULL AND expires_at > ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      )
+      .get(employeeId, nowIso) as Record<string, unknown> | undefined;
+    return row ? mapEmployeeInviteCode(row) : null;
+  }
+
+  invalidateActiveInviteCodes(employeeId: string, nowIso: string) {
+    this.db
+      .prepare("UPDATE employee_invite_codes SET used_at = ? WHERE employee_id = ? AND used_at IS NULL")
+      .run(nowIso, employeeId);
+  }
+
+  useEmployeeInviteCode(id: string, usedAt: string) {
+    this.db.prepare("UPDATE employee_invite_codes SET used_at = ? WHERE id = ?").run(usedAt, id);
   }
 
   createSession(record: SessionRecord) {

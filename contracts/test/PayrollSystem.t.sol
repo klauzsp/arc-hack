@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Test} from "forge-std/Test.sol";
 import {Core} from "../src/Core.sol";
+import {CctpBridge} from "../src/CctpBridge.sol";
 import {PayRun} from "../src/PayRun.sol";
 import {Rebalance} from "../src/Rebalance.sol";
 import {Vesting} from "../src/Vesting.sol";
@@ -43,9 +44,83 @@ contract MockTeller {
     }
 }
 
+contract MockTokenMessengerV2 {
+    event DepositForBurn(
+        uint64 indexed nonce,
+        address indexed burnToken,
+        uint256 amount,
+        address indexed depositor,
+        bytes32 mintRecipient,
+        uint32 destinationDomain,
+        bytes32 destinationTokenMessenger,
+        bytes32 destinationCaller,
+        uint256 maxFee,
+        uint256 minFinalityThreshold,
+        bytes hookData
+    );
+
+    uint64 internal nextNonce = 1;
+    MockToken public immutable usdc;
+
+    constructor(address usdc_) {
+        usdc = MockToken(usdc_);
+    }
+
+    function depositForBurn(
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 mintRecipient,
+        address burnToken,
+        bytes32 destinationCaller,
+        uint256 maxFee,
+        uint32 minFinalityThreshold
+    ) external {
+        usdc.transferFrom(msg.sender, address(this), amount);
+        emit DepositForBurn(
+            nextNonce++,
+            burnToken,
+            amount,
+            msg.sender,
+            mintRecipient,
+            destinationDomain,
+            bytes32(0),
+            destinationCaller,
+            maxFee,
+            minFinalityThreshold,
+            hex""
+        );
+    }
+
+    function depositForBurnWithHook(
+        uint256 amount,
+        uint32 destinationDomain,
+        bytes32 mintRecipient,
+        address burnToken,
+        bytes32 destinationCaller,
+        uint256 maxFee,
+        uint32 minFinalityThreshold,
+        bytes calldata hookData
+    ) external {
+        usdc.transferFrom(msg.sender, address(this), amount);
+        emit DepositForBurn(
+            nextNonce++,
+            burnToken,
+            amount,
+            msg.sender,
+            mintRecipient,
+            destinationDomain,
+            bytes32(0),
+            destinationCaller,
+            maxFee,
+            minFinalityThreshold,
+            hookData
+        );
+    }
+}
+
 contract PayrollSystemTest is Test {
-    uint32 internal constant ARC_CHAIN_ID = 10_001;
-    uint32 internal constant BASE_CHAIN_ID = 8453;
+    uint32 internal constant ARC_DOMAIN = 26;
+    uint32 internal constant BASE_DOMAIN = 6;
 
     address internal owner = address(0xA11CE);
     address internal payrollManager = address(0xB0B);
@@ -56,9 +131,11 @@ contract PayrollSystemTest is Test {
     MockToken internal usdc;
     MockToken internal usyc;
     MockTeller internal teller;
+    MockTokenMessengerV2 internal tokenMessenger;
     Vesting internal vesting;
     Rebalance internal rebalance;
     Core internal treasury;
+    CctpBridge internal cctpBridge;
     PayRun internal payRun;
 
     function setUp() public {
@@ -66,14 +143,18 @@ contract PayrollSystemTest is Test {
         usdc = new MockToken("Mock USD Coin", "mUSDC");
         usyc = new MockToken("Mock Yield Coin", "mUSYC");
         teller = new MockTeller(address(usdc), address(usyc));
+        tokenMessenger = new MockTokenMessengerV2(address(usdc));
         vesting = new Vesting(owner, address(usdc));
         rebalance = new Rebalance(owner, address(usdc), address(usyc), address(teller));
         treasury = new Core(owner, address(usdc), address(vesting), address(rebalance));
-        payRun = new PayRun(owner, address(treasury), ARC_CHAIN_ID);
+        cctpBridge = new CctpBridge(owner, address(treasury), address(usdc), address(tokenMessenger), ARC_DOMAIN);
+        payRun = new PayRun(owner, address(treasury), address(cctpBridge), ARC_DOMAIN);
         vesting.setAllocator(address(treasury), true);
         treasury.setPayoutExecutor(address(payRun), true);
+        treasury.setPayoutExecutor(address(cctpBridge), true);
         payRun.setManager(payrollManager, true);
         rebalance.setOperator(payrollManager, true);
+        cctpBridge.setOperator(address(payRun), true);
         vm.stopPrank();
 
         usdc.mint(address(treasury), 1_000_000e18);
@@ -90,12 +171,27 @@ contract PayrollSystemTest is Test {
         amounts[0] = 1_500e18;
         amounts[1] = 2_250e18;
 
-        uint32[] memory chainIds = new uint32[](2);
-        chainIds[0] = ARC_CHAIN_ID;
-        chainIds[1] = ARC_CHAIN_ID;
+        uint32[] memory domains = new uint32[](2);
+        domains[0] = ARC_DOMAIN;
+        domains[1] = ARC_DOMAIN;
+        uint256[] memory maxFees = new uint256[](2);
+        uint32[] memory thresholds = new uint32[](2);
+        thresholds[0] = 2000;
+        thresholds[1] = 2000;
+        bool[] memory useForwarders = new bool[](2);
 
         vm.prank(owner);
-        payRun.createPayRun(payRunId, uint64(block.timestamp), uint64(block.timestamp + 14 days), recipients, amounts, chainIds);
+        payRun.createPayRun(
+            payRunId,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 14 days),
+            recipients,
+            amounts,
+            domains,
+            maxFees,
+            thresholds,
+            useForwarders
+        );
 
         vm.prank(payrollManager);
         payRun.executePayRun(payRunId);
@@ -120,18 +216,36 @@ contract PayrollSystemTest is Test {
         amounts[0] = 800e18;
         amounts[1] = 1_200e18;
 
-        uint32[] memory chainIds = new uint32[](2);
-        chainIds[0] = ARC_CHAIN_ID;
-        chainIds[1] = BASE_CHAIN_ID;
+        uint32[] memory domains = new uint32[](2);
+        domains[0] = ARC_DOMAIN;
+        domains[1] = BASE_DOMAIN;
+        uint256[] memory maxFees = new uint256[](2);
+        maxFees[1] = 25e18;
+        uint32[] memory thresholds = new uint32[](2);
+        thresholds[0] = 2000;
+        thresholds[1] = 2000;
+        bool[] memory useForwarders = new bool[](2);
+        useForwarders[1] = true;
 
         vm.prank(owner);
-        payRun.createPayRun(payRunId, uint64(block.timestamp), uint64(block.timestamp + 14 days), recipients, amounts, chainIds);
+        payRun.createPayRun(
+            payRunId,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 14 days),
+            recipients,
+            amounts,
+            domains,
+            maxFees,
+            thresholds,
+            useForwarders
+        );
 
         vm.prank(owner);
         payRun.executePayRun(payRunId);
 
         assertEq(usdc.balanceOf(alice), amounts[0]);
         assertEq(usdc.balanceOf(carol), 0);
+        assertEq(usdc.balanceOf(address(tokenMessenger)), amounts[1]);
 
         (,,,,, PayRun.Status statusBeforeFinalize,) = payRun.payRuns(payRunId);
         assertEq(uint256(statusBeforeFinalize), uint256(PayRun.Status.Processing));

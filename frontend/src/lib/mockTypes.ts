@@ -3,6 +3,14 @@
 export type PayType = "yearly" | "daily" | "hourly";
 export type TimeTrackingMode = "check_in_out" | "schedule_based";
 export type PayRunStatus = "draft" | "pending" | "approved" | "processing" | "executed" | "failed";
+export type OnboardingStatus = "unclaimed" | "claimed";
+export type OnboardingMethod = "existing_wallet" | "circle" | null;
+
+export interface ActiveInvite {
+  id: string;
+  createdAt: string;
+  expiresAt: string;
+}
 
 export interface Schedule {
   id: string;
@@ -23,7 +31,7 @@ export interface TimeEntry {
 
 export interface Recipient {
   id: string;
-  walletAddress: string;
+  walletAddress: string | null;
   name: string;
   payType: PayType;
   rate: number; // in dollars (or cents per backend)
@@ -33,6 +41,10 @@ export interface Recipient {
   scheduleId?: string;
   timeTrackingMode: TimeTrackingMode;
   employmentStartDate?: string | null;
+  onboardingStatus: OnboardingStatus;
+  onboardingMethod: OnboardingMethod;
+  claimedAt?: string | null;
+  activeInvite?: ActiveInvite | null;
   availableToWithdraw?: number;
   active?: boolean;
 }
@@ -98,7 +110,7 @@ export interface TimeOffPolicy {
 
 export interface Employee {
   id: string;
-  walletAddress: string;
+  walletAddress: string | null;
   name: string;
   payType: PayType;
   rate: number;

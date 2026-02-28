@@ -10,6 +10,7 @@ exports.buildPayRunItemsPreview = buildPayRunItemsPreview;
 exports.suggestClockInTime = suggestClockInTime;
 exports.suggestClockOutTime = suggestClockOutTime;
 const dates_1 = require("../lib/dates");
+const cctp_1 = require("../lib/cctp");
 const HOURLY_SHIFT_PATTERNS = [
     [
         { clockIn: "08:30", clockOut: "12:15" },
@@ -39,14 +40,10 @@ function dollarsFromCents(value) {
 function centsFromDollars(value) {
     return Math.round(value * 100);
 }
-function chainIdFromPreference(chainPreference, arcChainId) {
-    if (chainPreference === "Base")
-        return 8453;
-    if (chainPreference === "Arbitrum")
-        return 42161;
-    if (chainPreference === "Ethereum")
-        return 11155111;
-    return arcChainId;
+function chainIdFromPreference(chainPreference, _arcChainId) {
+    if (chainPreference == null || chainPreference.trim() === "")
+        return (0, cctp_1.domainFromPreference)("Arc");
+    return (0, cctp_1.domainFromPreference)(chainPreference);
 }
 function getSchedule(scheduleId, schedules) {
     return schedules.find((schedule) => schedule.id === scheduleId) ?? schedules[0];
@@ -269,6 +266,9 @@ function buildPayRunItemsPreview(employees, payRuns, payRunItems, withdrawals, s
             recipientWalletAddress: employee.destinationWalletAddress ?? employee.walletAddress,
             destinationChainId: employee.destinationChainId ?? chainIdFromPreference(employee.chainPreference, arcChainId),
             amountCents,
+            maxFeeBaseUnits: 0,
+            minFinalityThreshold: 2000,
+            useForwarder: false,
             status: periodEnd <= today ? "ready" : "forecast",
         };
     });

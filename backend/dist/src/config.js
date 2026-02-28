@@ -75,5 +75,16 @@ function loadConfig(env = process.env) {
             stableFxApiKey,
         };
     }
+    const circleApiKey = env.CIRCLE_API_KEY?.trim();
+    const circleAppId = env.CIRCLE_APP_ID?.trim();
+    if (circleApiKey && circleAppId) {
+        config.circle = {
+            apiBaseUrl: env.CIRCLE_API_BASE_URL?.trim() || "https://api.circle.com",
+            apiKey: circleApiKey,
+            appId: circleAppId,
+            walletBlockchain: env.CIRCLE_WALLET_BLOCKCHAIN?.trim() || "ARC-TESTNET",
+            accountType: env.CIRCLE_ACCOUNT_TYPE?.trim().toUpperCase() === "SCA" ? "SCA" : "EOA",
+        };
+    }
     return config;
 }

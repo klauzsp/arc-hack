@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { privateKeyToAccount } from "viem/accounts";
 import { buildApp } from "../src/app";
 import { loadConfig } from "../src/config";
 
@@ -290,6 +291,100 @@ test("employee day-off requests honor the annual limit and can be moved without 
   assert.equal(myTimeOffResponse.json().allowance.maxDays, 1);
   assert.equal(myTimeOffResponse.json().allowance.reservedDays, 1);
   assert.equal(myTimeOffResponse.json().allowance.remainingDays, 0);
+
+  await app.close();
+});
+
+test("admin can issue a one-time access code and an employee can claim onboarding with an existing wallet", async () => {
+  const { app } = createTestHarness();
+
+  const createRecipientResponse = await app.inject({
+    method: "POST",
+    url: "/recipients",
+    headers: { authorization: "Bearer admin-token" },
+    payload: {
+      walletAddress: null,
+      name: "Ivy Turner",
+      payType: "hourly",
+      rate: 41,
+      chainPreference: "Base",
+      timeTrackingMode: "schedule_based",
+      scheduleId: "s-1",
+      employmentStartDate: "2026-02-15",
+    },
+  });
+  assert.equal(createRecipientResponse.statusCode, 200);
+  assert.equal(createRecipientResponse.json().onboardingStatus, "unclaimed");
+  assert.equal(createRecipientResponse.json().walletAddress, null);
+
+  const recipientId = createRecipientResponse.json().id as string;
+  const inviteResponse = await app.inject({
+    method: "POST",
+    url: `/recipients/${recipientId}/access-code`,
+    headers: { authorization: "Bearer admin-token" },
+    payload: {},
+  });
+  assert.equal(inviteResponse.statusCode, 200);
+  const code = inviteResponse.json().code as string;
+  assert.ok(code.length >= 8);
+
+  const redeemResponse = await app.inject({
+    method: "POST",
+    url: "/onboarding/redeem",
+    payload: { code },
+  });
+  assert.equal(redeemResponse.statusCode, 200);
+  assert.equal(redeemResponse.json().employee.name, "Ivy Turner");
+  assert.equal(redeemResponse.json().options.existingWallet, true);
+
+  const account = privateKeyToAccount(
+    "0x59c6995e998f97a5a0044966f09453827875d79eb8b7e51f5a61b0d12dd2c6d9",
+  );
+
+  const challengeResponse = await app.inject({
+    method: "POST",
+    url: "/onboarding/wallet/challenge",
+    payload: {
+      code,
+      address: account.address,
+    },
+  });
+  assert.equal(challengeResponse.statusCode, 200);
+  const challenge = challengeResponse.json() as { message: string };
+
+  const signature = await account.signMessage({
+    message: challenge.message,
+  });
+
+  const claimResponse = await app.inject({
+    method: "POST",
+    url: "/onboarding/wallet/claim",
+    payload: {
+      code,
+      address: account.address,
+      message: challenge.message,
+      signature,
+    },
+  });
+  assert.equal(claimResponse.statusCode, 200);
+  assert.equal(claimResponse.json().role, "employee");
+  assert.equal(claimResponse.json().employee.onboardingStatus, "claimed");
+  assert.equal(claimResponse.json().employee.walletAddress.toLowerCase(), account.address.toLowerCase());
+
+  const meResponse = await app.inject({
+    method: "GET",
+    url: "/me",
+    headers: { authorization: `Bearer ${claimResponse.json().token as string}` },
+  });
+  assert.equal(meResponse.statusCode, 200);
+  assert.equal(meResponse.json().employee.name, "Ivy Turner");
+
+  const reuseResponse = await app.inject({
+    method: "POST",
+    url: "/onboarding/redeem",
+    payload: { code },
+  });
+  assert.equal(reuseResponse.statusCode, 500);
 
   await app.close();
 });

@@ -1,7 +1,10 @@
 export type {
+  ActiveInvite,
   ChainBalance,
   Employee,
   HolidayRecord,
+  OnboardingMethod,
+  OnboardingStatus,
   PayRun,
   PayRunItem,
   PayRunStatus,

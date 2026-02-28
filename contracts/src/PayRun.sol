@@ -4,6 +4,17 @@ pragma solidity 0.8.30;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Core} from "./Core.sol";
 
+interface ICctpBridge {
+    function bridgePayroll(
+        address recipient,
+        uint256 amount,
+        uint32 destinationDomain,
+        uint256 maxFee,
+        uint32 minFinalityThreshold,
+        bool useForwarder
+    ) external;
+}
+
 /// @notice Stores pay run records on-chain and executes Arc payouts from the treasury.
 contract PayRun is Ownable {
     error ZeroAddress();
@@ -34,11 +45,15 @@ contract PayRun is Ownable {
     struct PayRunItem {
         address recipient;
         uint256 amount;
-        uint32 chainId;
+        uint32 destinationDomain;
+        uint256 maxFee;
+        uint32 minFinalityThreshold;
+        bool useForwarder;
     }
 
     Core public immutable treasury;
-    uint32 public immutable arcChainId;
+    ICctpBridge public immutable cctpBridge;
+    uint32 public immutable arcDomain;
 
     mapping(address => bool) public managers;
     mapping(bytes32 => PayRunSummary) public payRuns;
@@ -48,21 +63,50 @@ contract PayRun is Ownable {
     event PayRunCreated(bytes32 indexed payRunId, uint64 periodStart, uint64 periodEnd, uint256 totalAmount);
     event ArcPayoutTransferred(bytes32 indexed payRunId, uint256 indexed itemIndex, address indexed recipient, uint256 amount);
     event CrossChainPayoutRequested(
-        bytes32 indexed payRunId, uint256 indexed itemIndex, address indexed recipient, uint256 amount, uint32 chainId
+        bytes32 indexed payRunId,
+        uint256 indexed itemIndex,
+        address indexed recipient,
+        uint256 amount,
+        uint32 destinationDomain,
+        uint256 maxFee,
+        uint32 minFinalityThreshold,
+        bool useForwarder
     );
     event PayRunProcessing(bytes32 indexed payRunId, uint256 arcPayoutAmount, uint256 crossChainItemCount);
     event PayRunFinalized(bytes32 indexed payRunId, uint64 executedAt);
     event PayRunFailed(bytes32 indexed payRunId);
 
-    constructor(address initialOwner, address treasury_, uint32 arcChainId_) Ownable(initialOwner) {
-        if (initialOwner == address(0) || treasury_ == address(0)) revert ZeroAddress();
+    constructor(address initialOwner, address treasury_, address cctpBridge_, uint32 arcDomain_) Ownable(initialOwner) {
+        if (initialOwner == address(0) || treasury_ == address(0) || cctpBridge_ == address(0)) revert ZeroAddress();
         treasury = Core(treasury_);
-        arcChainId = arcChainId_;
+        cctpBridge = ICctpBridge(cctpBridge_);
+        arcDomain = arcDomain_;
     }
 
     modifier onlyManager() {
         if (msg.sender != owner() && !managers[msg.sender]) revert InvalidStatus();
         _;
+    }
+
+    function _appendPayRunItem(
+        bytes32 payRunId,
+        address recipient,
+        uint256 amount,
+        uint32 destinationDomain,
+        uint256 maxFee,
+        uint32 minFinalityThreshold,
+        bool useForwarder
+    ) internal {
+        _payRunItems[payRunId].push(
+            PayRunItem({
+                recipient: recipient,
+                amount: amount,
+                destinationDomain: destinationDomain,
+                maxFee: maxFee,
+                minFinalityThreshold: minFinalityThreshold,
+                useForwarder: useForwarder
+            })
+        );
     }
 
     function setManager(address manager, bool allowed) external onlyOwner {
@@ -77,18 +121,33 @@ contract PayRun is Ownable {
         uint64 periodEnd,
         address[] calldata recipients,
         uint256[] calldata amounts,
-        uint32[] calldata chainIds
+        uint32[] calldata destinationDomains,
+        uint256[] calldata maxFees,
+        uint32[] calldata minFinalityThresholds,
+        bool[] calldata useForwarders
     ) external onlyManager returns (uint256 totalAmount) {
         if (payRuns[payRunId].status != Status.None) revert PayRunAlreadyExists();
         if (recipients.length == 0) revert EmptyPayRun();
-        if (recipients.length != amounts.length || recipients.length != chainIds.length) revert LengthMismatch();
+        if (
+            recipients.length != amounts.length || recipients.length != destinationDomains.length
+                || recipients.length != maxFees.length || recipients.length != minFinalityThresholds.length
+                || recipients.length != useForwarders.length
+        ) revert LengthMismatch();
 
         for (uint256 i = 0; i < recipients.length; i++) {
             if (recipients[i] == address(0)) revert ZeroAddress();
 
             uint256 amount = amounts[i];
             totalAmount += amount;
-            _payRunItems[payRunId].push(PayRunItem({recipient: recipients[i], amount: amount, chainId: chainIds[i]}));
+            _appendPayRunItem(
+                payRunId,
+                recipients[i],
+                amount,
+                destinationDomains[i],
+                maxFees[i],
+                minFinalityThresholds[i],
+                useForwarders[i]
+            );
         }
 
         payRuns[payRunId] = PayRunSummary({
@@ -114,13 +173,25 @@ contract PayRun is Ownable {
         PayRunItem[] storage items = _payRunItems[payRunId];
         for (uint256 i = 0; i < items.length; i++) {
             PayRunItem storage item = items[i];
-            if (item.chainId == arcChainId) {
+            if (item.destinationDomain == arcDomain) {
                 treasury.transferPayroll(item.recipient, item.amount);
                 arcPayoutAmount += item.amount;
                 emit ArcPayoutTransferred(payRunId, i, item.recipient, item.amount);
             } else {
+                cctpBridge.bridgePayroll(
+                    item.recipient, item.amount, item.destinationDomain, item.maxFee, item.minFinalityThreshold, item.useForwarder
+                );
                 crossChainItemCount += 1;
-                emit CrossChainPayoutRequested(payRunId, i, item.recipient, item.amount, item.chainId);
+                emit CrossChainPayoutRequested(
+                    payRunId,
+                    i,
+                    item.recipient,
+                    item.amount,
+                    item.destinationDomain,
+                    item.maxFee,
+                    item.minFinalityThreshold,
+                    item.useForwarder
+                );
             }
         }
 
