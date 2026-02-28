@@ -69,6 +69,45 @@ function countScheduledDays(schedule, start, end, holidaySet) {
     }
     return total;
 }
+function clockToSeconds(clock) {
+    const [hours, minutes] = clock.split(":").map(Number);
+    return hours * 3600 + minutes * 60;
+}
+function zonedNow(timezone, nowIso) {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+    });
+    const parts = Object.fromEntries(formatter
+        .formatToParts(new Date(nowIso))
+        .filter((part) => part.type !== "literal")
+        .map((part) => [part.type, part.value]));
+    return {
+        date: `${parts.year}-${parts.month}-${parts.day}`,
+        secondsSinceMidnight: Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second),
+    };
+}
+function currentDayScheduleFraction(schedule, date, nowIso) {
+    const current = zonedNow(schedule.timezone, nowIso);
+    if (date < current.date)
+        return 1;
+    if (date > current.date)
+        return 0;
+    const startSeconds = clockToSeconds(schedule.startTime);
+    const durationSeconds = Math.max(Math.round(schedule.hoursPerDay * 3600), 1);
+    const elapsed = current.secondsSinceMidnight - startSeconds;
+    if (elapsed <= 0)
+        return 0;
+    if (elapsed >= durationSeconds)
+        return 1;
+    return elapsed / durationSeconds;
+}
 function sumActualHoursByDate(employeeId, start, end, timeEntries) {
     const totals = new Map();
     for (const entry of timeEntries) {
@@ -104,7 +143,7 @@ function buildHourlyEntries(employeeId, schedule, start, end, holidays, offset) 
     }
     return entries;
 }
-function periodStats(employee, start, end, schedules, holidays, timeEntries) {
+function periodStats(employee, start, end, schedules, holidays, approvedTimeOffRequests, timeEntries, nowIso, forecastFutureDays = false) {
     const schedule = getSchedule(employee.scheduleId, schedules);
     const effectiveStart = employee.employmentStartDate
         ? maxIsoDate(employee.employmentStartDate, start)
@@ -117,7 +156,10 @@ function periodStats(employee, start, end, schedules, holidays, timeEntries) {
             scheduleHoursPerDay: schedule.hoursPerDay,
         };
     }
-    const holidaySet = new Set(holidays.map((holiday) => holiday.date));
+    const holidaySet = new Set([
+        ...holidays.map((holiday) => holiday.date),
+        ...approvedTimeOffRequests.map((request) => request.date),
+    ]);
     const actualHoursByDate = sumActualHoursByDate(employee.id, effectiveStart, end, timeEntries);
     const scheduledDays = countScheduledDays(schedule, effectiveStart, end, holidaySet);
     let hoursWorked = 0;
@@ -130,8 +172,9 @@ function periodStats(employee, start, end, schedules, holidays, timeEntries) {
             continue;
         scheduledDates.add(cursor);
         if (employee.timeTrackingMode === "schedule_based") {
-            daysWorked += 1;
-            hoursWorked += schedule.hoursPerDay;
+            const dayFraction = forecastFutureDays ? 1 : currentDayScheduleFraction(schedule, cursor, nowIso);
+            daysWorked += dayFraction;
+            hoursWorked += schedule.hoursPerDay * dayFraction;
             continue;
         }
         const actualHours = actualHoursByDate.get(cursor);
@@ -154,8 +197,8 @@ function periodStats(employee, start, end, schedules, holidays, timeEntries) {
         }
     }
     return {
-        daysWorked,
-        hoursWorked,
+        daysWorked: Number(daysWorked.toFixed(4)),
+        hoursWorked: Number(hoursWorked.toFixed(4)),
         holidayCount: countHolidays(effectiveStart, end, holidaySet),
         scheduleHoursPerDay: schedule.hoursPerDay,
         scheduledDays,
@@ -168,11 +211,11 @@ function earningsForStats(employee, stats) {
         return roundCents(employee.rateCents * stats.daysWorked);
     return roundCents((employee.rateCents / dates_1.WORKING_DAYS_IN_YEAR) * stats.daysWorked);
 }
-function calculateRecipientMetrics(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, today) {
+function calculateRecipientMetrics(employee, payRuns, payRunItems, withdrawals, schedules, holidays, approvedTimeOffRequests, timeEntries, nowIso, today) {
     const { periodStart, periodEnd } = (0, dates_1.currentSemimonthlyPeriod)(today);
-    const currentStats = periodStats(employee, periodStart, today < periodEnd ? today : periodEnd, schedules, holidays, timeEntries);
+    const currentStats = periodStats(employee, periodStart, today < periodEnd ? today : periodEnd, schedules, holidays, approvedTimeOffRequests, timeEntries, nowIso);
     const ytdWindowStart = (0, dates_1.yearStart)(today);
-    const ytdStats = periodStats(employee, ytdWindowStart, today, schedules, holidays, timeEntries);
+    const ytdStats = periodStats(employee, ytdWindowStart, today, schedules, holidays, approvedTimeOffRequests, timeEntries, nowIso);
     const paidPayRunIds = new Set(payRuns
         .filter((payRun) => overlaps(payRun.periodStart, payRun.periodEnd, ytdWindowStart, today))
         .filter((payRun) => payRun.status === "executed" || payRun.status === "processing")
@@ -202,14 +245,14 @@ function calculateRecipientMetrics(employee, payRuns, payRunItems, withdrawals, 
         scheduleHoursPerDay: currentStats.scheduleHoursPerDay,
     };
 }
-function buildPayRunItemsPreview(employees, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, periodStart, periodEnd, today, arcChainId) {
+function buildPayRunItemsPreview(employees, payRuns, payRunItems, withdrawals, schedules, holidays, approvedTimeOffRequests, timeEntries, periodStart, periodEnd, nowIso, today, arcChainId) {
     const isForecast = periodStart > today;
     const settledPayRunIds = new Set(payRuns
         .filter((payRun) => overlaps(payRun.periodStart, payRun.periodEnd, periodStart, periodEnd))
         .filter((payRun) => payRun.status === "executed" || payRun.status === "processing")
         .map((payRun) => payRun.id));
     return employees.map((employee) => {
-        const stats = periodStats(employee, periodStart, periodEnd, schedules, holidays, timeEntries);
+        const stats = periodStats(employee, periodStart, periodEnd, schedules, holidays, approvedTimeOffRequests.filter((request) => request.employeeId === employee.id), timeEntries, nowIso, isForecast);
         const earnedCents = earningsForStats(employee, stats);
         const alreadyPaidCents = payRunItems
             .filter((item) => item.employeeId === employee.id && settledPayRunIds.has(item.payRunId))

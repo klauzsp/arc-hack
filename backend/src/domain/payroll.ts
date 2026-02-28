@@ -15,6 +15,7 @@ import type {
   PayRunRecord,
   RecipientMetrics,
   ScheduleRecord,
+  TimeOffRequestRecord,
   TimeEntryRecord,
   WithdrawalRecord,
 } from "./types";
@@ -84,6 +85,49 @@ function countScheduledDays(schedule: ScheduleRecord, start: string, end: string
   return total;
 }
 
+function clockToSeconds(clock: string) {
+  const [hours, minutes] = clock.split(":").map(Number);
+  return hours * 3600 + minutes * 60;
+}
+
+function zonedNow(timezone: string, nowIso: string) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(new Date(nowIso))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  ) as Record<string, string>;
+
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    secondsSinceMidnight:
+      Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second),
+  };
+}
+
+function currentDayScheduleFraction(schedule: ScheduleRecord, date: string, nowIso: string) {
+  const current = zonedNow(schedule.timezone, nowIso);
+  if (date < current.date) return 1;
+  if (date > current.date) return 0;
+
+  const startSeconds = clockToSeconds(schedule.startTime);
+  const durationSeconds = Math.max(Math.round(schedule.hoursPerDay * 3600), 1);
+  const elapsed = current.secondsSinceMidnight - startSeconds;
+  if (elapsed <= 0) return 0;
+  if (elapsed >= durationSeconds) return 1;
+  return elapsed / durationSeconds;
+}
+
 function sumActualHoursByDate(employeeId: string, start: string, end: string, timeEntries: TimeEntryRecord[]) {
   const totals = new Map<string, number>();
   for (const entry of timeEntries) {
@@ -138,7 +182,10 @@ function periodStats(
   end: string,
   schedules: ScheduleRecord[],
   holidays: HolidayRecord[],
+  approvedTimeOffRequests: TimeOffRequestRecord[],
   timeEntries: TimeEntryRecord[],
+  nowIso: string,
+  forecastFutureDays = false,
 ) {
   const schedule = getSchedule(employee.scheduleId, schedules);
   const effectiveStart = employee.employmentStartDate
@@ -153,7 +200,10 @@ function periodStats(
     };
   }
 
-  const holidaySet = new Set(holidays.map((holiday) => holiday.date));
+  const holidaySet = new Set([
+    ...holidays.map((holiday) => holiday.date),
+    ...approvedTimeOffRequests.map((request) => request.date),
+  ]);
   const actualHoursByDate = sumActualHoursByDate(employee.id, effectiveStart, end, timeEntries);
   const scheduledDays = countScheduledDays(schedule, effectiveStart, end, holidaySet);
   let hoursWorked = 0;
@@ -167,8 +217,9 @@ function periodStats(
 
     scheduledDates.add(cursor);
     if (employee.timeTrackingMode === "schedule_based") {
-      daysWorked += 1;
-      hoursWorked += schedule.hoursPerDay;
+      const dayFraction = forecastFutureDays ? 1 : currentDayScheduleFraction(schedule, cursor, nowIso);
+      daysWorked += dayFraction;
+      hoursWorked += schedule.hoursPerDay * dayFraction;
       continue;
     }
 
@@ -192,8 +243,8 @@ function periodStats(
   }
 
   return {
-    daysWorked,
-    hoursWorked,
+    daysWorked: Number(daysWorked.toFixed(4)),
+    hoursWorked: Number(hoursWorked.toFixed(4)),
     holidayCount: countHolidays(effectiveStart, end, holidaySet),
     scheduleHoursPerDay: schedule.hoursPerDay,
     scheduledDays,
@@ -216,7 +267,9 @@ export function calculateRecipientMetrics(
   withdrawals: WithdrawalRecord[],
   schedules: ScheduleRecord[],
   holidays: HolidayRecord[],
+  approvedTimeOffRequests: TimeOffRequestRecord[],
   timeEntries: TimeEntryRecord[],
+  nowIso: string,
   today: string,
 ): RecipientMetrics {
   const { periodStart, periodEnd } = currentSemimonthlyPeriod(today);
@@ -226,10 +279,21 @@ export function calculateRecipientMetrics(
     today < periodEnd ? today : periodEnd,
     schedules,
     holidays,
+    approvedTimeOffRequests,
     timeEntries,
+    nowIso,
   );
   const ytdWindowStart = yearStart(today);
-  const ytdStats = periodStats(employee, ytdWindowStart, today, schedules, holidays, timeEntries);
+  const ytdStats = periodStats(
+    employee,
+    ytdWindowStart,
+    today,
+    schedules,
+    holidays,
+    approvedTimeOffRequests,
+    timeEntries,
+    nowIso,
+  );
   const paidPayRunIds = new Set(
     payRuns
       .filter((payRun) => overlaps(payRun.periodStart, payRun.periodEnd, ytdWindowStart, today))
@@ -272,9 +336,11 @@ export function buildPayRunItemsPreview(
   withdrawals: WithdrawalRecord[],
   schedules: ScheduleRecord[],
   holidays: HolidayRecord[],
+  approvedTimeOffRequests: TimeOffRequestRecord[],
   timeEntries: TimeEntryRecord[],
   periodStart: string,
   periodEnd: string,
+  nowIso: string,
   today: string,
   arcChainId: number,
 ): PayRunItemPreview[] {
@@ -286,7 +352,17 @@ export function buildPayRunItemsPreview(
       .map((payRun) => payRun.id),
   );
   return employees.map((employee) => {
-    const stats = periodStats(employee, periodStart, periodEnd, schedules, holidays, timeEntries);
+    const stats = periodStats(
+      employee,
+      periodStart,
+      periodEnd,
+      schedules,
+      holidays,
+      approvedTimeOffRequests.filter((request) => request.employeeId === employee.id),
+      timeEntries,
+      nowIso,
+      isForecast,
+    );
     const earnedCents = earningsForStats(employee, stats);
     const alreadyPaidCents =
       payRunItems

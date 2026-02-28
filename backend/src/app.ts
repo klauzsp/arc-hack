@@ -35,6 +35,7 @@ const recipientSchema = z.object({
 const scheduleSchema = z.object({
   name: z.string().min(1),
   timezone: z.string().min(1),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/),
   hoursPerDay: z.number().positive(),
   workingDays: z.array(z.number().int().min(0).max(6)).min(1),
 });
@@ -81,6 +82,25 @@ const clockOutSchema = z.object({
 
 const withdrawSchema = z.object({
   amount: z.number().positive().optional(),
+});
+
+const timeOffPolicySchema = z.object({
+  maxDaysPerYear: z.number().int().positive(),
+});
+
+const employeeTimeOffSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  note: z.string().max(500).nullable().optional(),
+});
+
+const employeeTimeOffUpdateSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  note: z.string().max(500).nullable().optional(),
+  status: z.enum(["cancelled"]).optional(),
+});
+
+const adminTimeOffReviewSchema = z.object({
+  status: z.enum(["approved", "rejected", "cancelled"]),
 });
 
 async function getSessionOrThrow(
@@ -243,6 +263,19 @@ export function buildApp(config: AppConfig) {
     await getSessionOrThrow(request, authService, "employee");
     return payrollService.getMeHolidays();
   });
+  app.get("/me/time-off", async (request) => {
+    const session = await getSessionOrThrow(request, authService, "employee");
+    return payrollService.listMyTimeOff(session.address);
+  });
+  app.post("/me/time-off", async (request) => {
+    const session = await getSessionOrThrow(request, authService, "employee");
+    return payrollService.createMyTimeOff(session.address, employeeTimeOffSchema.parse(request.body ?? {}));
+  });
+  app.patch("/me/time-off/:id", async (request) => {
+    const session = await getSessionOrThrow(request, authService, "employee");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    return payrollService.updateMyTimeOff(session.address, params.id, employeeTimeOffUpdateSchema.parse(request.body ?? {}));
+  });
   app.get("/me/earnings", async (request) => {
     const session = await getSessionOrThrow(request, authService, "employee");
     return payrollService.getMyEarnings(session.address);
@@ -331,6 +364,24 @@ export function buildApp(config: AppConfig) {
   app.post("/jobs/run", async (request) => {
     await getSessionOrThrow(request, authService, "admin");
     return jobService.runScheduledTasks();
+  });
+
+  app.get("/time-off/policy", async (request) => {
+    await getSessionOrThrow(request, authService);
+    return payrollService.getTimeOffPolicy();
+  });
+  app.patch("/time-off/policy", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    return payrollService.updateTimeOffPolicy(timeOffPolicySchema.parse(request.body ?? {}));
+  });
+  app.get("/time-off/requests", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    return payrollService.listTimeOffRequests();
+  });
+  app.patch("/time-off/requests/:id", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    return payrollService.reviewTimeOffRequest(params.id, adminTimeOffReviewSchema.parse(request.body ?? {}));
   });
 
   app.addHook("onClose", async () => {

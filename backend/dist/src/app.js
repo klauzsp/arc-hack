@@ -36,6 +36,7 @@ const recipientSchema = zod_1.z.object({
 const scheduleSchema = zod_1.z.object({
     name: zod_1.z.string().min(1),
     timezone: zod_1.z.string().min(1),
+    startTime: zod_1.z.string().regex(/^\d{2}:\d{2}$/),
     hoursPerDay: zod_1.z.number().positive(),
     workingDays: zod_1.z.array(zod_1.z.number().int().min(0).max(6)).min(1),
 });
@@ -74,6 +75,21 @@ const clockOutSchema = zod_1.z.object({
 });
 const withdrawSchema = zod_1.z.object({
     amount: zod_1.z.number().positive().optional(),
+});
+const timeOffPolicySchema = zod_1.z.object({
+    maxDaysPerYear: zod_1.z.number().int().positive(),
+});
+const employeeTimeOffSchema = zod_1.z.object({
+    date: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    note: zod_1.z.string().max(500).nullable().optional(),
+});
+const employeeTimeOffUpdateSchema = zod_1.z.object({
+    date: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    note: zod_1.z.string().max(500).nullable().optional(),
+    status: zod_1.z.enum(["cancelled"]).optional(),
+});
+const adminTimeOffReviewSchema = zod_1.z.object({
+    status: zod_1.z.enum(["approved", "rejected", "cancelled"]),
 });
 async function getSessionOrThrow(request, authService, requiredRole) {
     const authorization = request.headers.authorization;
@@ -217,6 +233,19 @@ function buildApp(config) {
         await getSessionOrThrow(request, authService, "employee");
         return payrollService.getMeHolidays();
     });
+    app.get("/me/time-off", async (request) => {
+        const session = await getSessionOrThrow(request, authService, "employee");
+        return payrollService.listMyTimeOff(session.address);
+    });
+    app.post("/me/time-off", async (request) => {
+        const session = await getSessionOrThrow(request, authService, "employee");
+        return payrollService.createMyTimeOff(session.address, employeeTimeOffSchema.parse(request.body ?? {}));
+    });
+    app.patch("/me/time-off/:id", async (request) => {
+        const session = await getSessionOrThrow(request, authService, "employee");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        return payrollService.updateMyTimeOff(session.address, params.id, employeeTimeOffUpdateSchema.parse(request.body ?? {}));
+    });
     app.get("/me/earnings", async (request) => {
         const session = await getSessionOrThrow(request, authService, "employee");
         return payrollService.getMyEarnings(session.address);
@@ -300,6 +329,23 @@ function buildApp(config) {
     app.post("/jobs/run", async (request) => {
         await getSessionOrThrow(request, authService, "admin");
         return jobService.runScheduledTasks();
+    });
+    app.get("/time-off/policy", async (request) => {
+        await getSessionOrThrow(request, authService);
+        return payrollService.getTimeOffPolicy();
+    });
+    app.patch("/time-off/policy", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        return payrollService.updateTimeOffPolicy(timeOffPolicySchema.parse(request.body ?? {}));
+    });
+    app.get("/time-off/requests", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        return payrollService.listTimeOffRequests();
+    });
+    app.patch("/time-off/requests/:id", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        return payrollService.reviewTimeOffRequest(params.id, adminTimeOffReviewSchema.parse(request.body ?? {}));
     });
     app.addHook("onClose", async () => {
         repository.close();

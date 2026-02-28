@@ -25,6 +25,10 @@ function formatRate(payType: string, rate: number) {
   return `$${rate}/hr`;
 }
 
+function formatDays(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
 function formatDate(value: string) {
   return new Date(`${value}T12:00:00Z`).toLocaleDateString("en-US", {
     month: "short",
@@ -76,11 +80,11 @@ export default function MyEarningsPage() {
   const timeWorkedLabel =
     recipient.payType === "hourly"
       ? `${metrics.currentPeriodHours.toFixed(1)} hrs this period`
-      : `${metrics.currentPeriodDays} working days this period`;
+      : `${formatDays(metrics.currentPeriodDays)} working days this period`;
   const ytdTimeWorkedLabel =
     recipient.payType === "hourly"
       ? `${metrics.ytdHours.toFixed(1)} hrs YTD`
-      : `${metrics.ytdDays} working days YTD`;
+      : `${formatDays(metrics.ytdDays)} working days YTD`;
 
   const handleWithdrawNow = async () => {
     setWithdrawError(null);
@@ -252,7 +256,7 @@ export default function MyEarningsPage() {
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Breakdown input</p>
             <p className="mt-1 text-sm font-semibold text-slate-900">
-              {recipient.payType === "hourly" ? `${metrics.currentPeriodHours.toFixed(1)} hours` : `${metrics.currentPeriodDays} working days`}
+              {recipient.payType === "hourly" ? `${metrics.currentPeriodHours.toFixed(1)} hours` : `${formatDays(metrics.currentPeriodDays)} working days`}
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
@@ -279,7 +283,7 @@ export default function MyEarningsPage() {
             <p className="text-sm font-medium text-amber-800">How withdrawals work</p>
             <p className="mt-0.5 text-xs text-amber-700">
               Available to withdraw is calculated as earned wages to date minus amounts already paid in executed pay runs.
-              Holidays and non-working days are excluded from the schedule-based calculation.
+              Schedule-based earnings accrue continuously through the configured workday, while holidays and approved days off are excluded.
             </p>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import type { PayRun, Recipient, Schedule, TimeEntry } from "./types";
+import type { HolidayRecord, PayRun, Recipient, Schedule, TimeEntry, TimeOffAllowance, TimeOffPolicy, TimeOffRequest } from "./types";
 import { publicConfig } from "./publicConfig";
 import type { Role } from "./role";
 
@@ -145,6 +145,16 @@ export interface WithdrawResponse {
   walletAddress: string;
 }
 
+export interface TimeOffSummaryResponse {
+  requests: TimeOffRequest[];
+  allowance: TimeOffAllowance;
+}
+
+export interface AdminTimeOffResponse {
+  policy: TimeOffPolicy;
+  requests: TimeOffRequest[];
+}
+
 export type RecipientPayload = Omit<Recipient, "id">;
 
 export const api = {
@@ -187,10 +197,22 @@ export const api = {
       token,
       body: payload,
     }),
-  getHolidays: () => request<Array<{ id: string; date: string; name: string }>>("/holidays"),
+  updateSchedule: (token: string, id: string, payload: Partial<Omit<Schedule, "id">>) =>
+    request<Schedule>(`/schedules/${id}`, {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
+  getHolidays: () => request<HolidayRecord[]>("/holidays"),
   createHoliday: (token: string, payload: { date: string; name: string }) =>
-    request<{ id: string; date: string; name: string }>("/holidays", {
+    request<HolidayRecord>("/holidays", {
       method: "POST",
+      token,
+      body: payload,
+    }),
+  updateHoliday: (token: string, id: string, payload: Partial<{ date: string; name: string }>) =>
+    request<HolidayRecord>(`/holidays/${id}`, {
+      method: "PATCH",
       token,
       body: payload,
     }),
@@ -298,6 +320,37 @@ export const api = {
     }>,
   ) =>
     request<PolicyResponse>(`/policies/${id}`, {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
+  getTimeOffPolicy: (token: string) => request<TimeOffPolicy>("/time-off/policy", { token }),
+  updateTimeOffPolicy: (token: string, payload: { maxDaysPerYear: number }) =>
+    request<TimeOffPolicy>("/time-off/policy", {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
+  getTimeOffRequests: (token: string) => request<AdminTimeOffResponse>("/time-off/requests", { token }),
+  reviewTimeOffRequest: (token: string, id: string, payload: { status: "approved" | "rejected" | "cancelled" }) =>
+    request<TimeOffRequest>(`/time-off/requests/${id}`, {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
+  getMyTimeOff: (token: string) => request<TimeOffSummaryResponse>("/me/time-off", { token }),
+  createMyTimeOff: (token: string, payload: { date: string; note?: string | null }) =>
+    request<TimeOffRequest>("/me/time-off", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  updateMyTimeOff: (
+    token: string,
+    id: string,
+    payload: Partial<{ date: string; note: string | null; status: "cancelled" }>,
+  ) =>
+    request<TimeOffRequest>(`/me/time-off/${id}`, {
       method: "PATCH",
       token,
       body: payload,

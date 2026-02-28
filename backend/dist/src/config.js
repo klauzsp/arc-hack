@@ -16,15 +16,22 @@ function parseBoolean(value, fallback) {
         return fallback;
     return value === "1" || value.toLowerCase() === "true";
 }
+function workspaceRoot() {
+    return node_path_1.default.basename(process.cwd()) === "backend" ? node_path_1.default.resolve(process.cwd(), "..") : process.cwd();
+}
+function resolveWorkspacePath(value) {
+    return node_path_1.default.isAbsolute(value) ? value : node_path_1.default.resolve(workspaceRoot(), value);
+}
 function loadConfig(env = process.env) {
     const chainMode = (env.CHAIN_MODE?.toLowerCase() === "live" ? "live" : "mock");
-    const defaultDbPath = node_path_1.default.resolve(process.cwd(), "backend", "data", "payroll.sqlite");
+    const defaultDbPath = resolveWorkspacePath(node_path_1.default.join("backend", "data", "payroll.sqlite"));
     const defaultArcRpcUrl = "https://rpc.testnet.arc.network";
     const dbPath = env.BACKEND_DB_PATH === ":memory:"
         ? ":memory:"
         : env.BACKEND_DB_PATH
-            ? node_path_1.default.resolve(env.BACKEND_DB_PATH)
+            ? resolveWorkspacePath(env.BACKEND_DB_PATH)
             : defaultDbPath;
+    const today = new Date().toISOString().slice(0, 10);
     const config = {
         host: env.BACKEND_HOST ?? "127.0.0.1",
         port: parseNumber(env.BACKEND_PORT, 3001),
@@ -34,10 +41,11 @@ function loadConfig(env = process.env) {
         companyId: env.BACKEND_COMPANY_ID ?? "company-arc",
         companyName: env.BACKEND_COMPANY_NAME ?? "Arc Payroll Demo",
         adminWallet: (env.BACKEND_ADMIN_WALLET ?? "0x13e00D9810d3C8Dc19A8C9A172fd9A8aC56e94e0").toLowerCase(),
-        seedDate: env.BACKEND_SEED_DATE ?? "2026-02-28",
+        seedDate: env.BACKEND_SEED_DATE ?? today,
         jobsEnabled: parseBoolean(env.BACKEND_JOBS_ENABLED, false),
         arcChainId: parseNumber(env.BACKEND_ARC_CHAIN_ID, 5_042_002),
         chainMode,
+        referenceNowOverride: env.BACKEND_REFERENCE_NOW?.trim() || undefined,
     };
     if (chainMode === "live") {
         const rpcUrl = env.BACKEND_RPC_URL ?? env.NEXT_PUBLIC_ARC_RPC_URL ?? defaultArcRpcUrl;

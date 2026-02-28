@@ -35,6 +35,7 @@ function mapCompany(row) {
         autoRedeemEnabled: toBoolean(row.auto_redeem_enabled),
         rebalanceThresholdCents: toNumber(row.rebalance_threshold_cents),
         payoutNoticeHours: toNumber(row.payout_notice_hours),
+        maxTimeOffDaysPerYear: toNumber(row.max_time_off_days_per_year),
     };
 }
 function mapTreasuryBalance(row) {
@@ -52,6 +53,7 @@ function mapSchedule(row) {
         companyId: String(row.company_id),
         name: String(row.name),
         timezone: String(row.timezone),
+        startTime: String(row.start_time),
         hoursPerDay: toNumber(row.hours_per_day),
         workingDays: parseJson(row.working_days_json, []),
     };
@@ -160,6 +162,19 @@ function mapWithdrawal(row) {
         status: row.status,
     };
 }
+function mapTimeOffRequest(row) {
+    return {
+        id: String(row.id),
+        companyId: String(row.company_id),
+        employeeId: String(row.employee_id),
+        date: String(row.date),
+        note: row.note == null ? null : String(row.note),
+        status: row.status,
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at),
+        reviewedAt: row.reviewed_at == null ? null : String(row.reviewed_at),
+    };
+}
 class PayrollRepository {
     dbPath;
     db;
@@ -187,7 +202,8 @@ class PayrollRepository {
         auto_rebalance_enabled INTEGER NOT NULL,
         auto_redeem_enabled INTEGER NOT NULL,
         rebalance_threshold_cents INTEGER NOT NULL,
-        payout_notice_hours INTEGER NOT NULL
+        payout_notice_hours INTEGER NOT NULL,
+        max_time_off_days_per_year INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS treasury_balances (
@@ -203,6 +219,7 @@ class PayrollRepository {
         company_id TEXT NOT NULL,
         name TEXT NOT NULL,
         timezone TEXT NOT NULL,
+        start_time TEXT NOT NULL,
         hours_per_day REAL NOT NULL,
         working_days_json TEXT NOT NULL
       );
@@ -302,6 +319,18 @@ class PayrollRepository {
         status TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS time_off_requests (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        employee_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        note TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        reviewed_at TEXT
+      );
+
       CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays(date);
       CREATE INDEX IF NOT EXISTS idx_time_entries_employee_date ON time_entries(employee_id, date);
       CREATE INDEX IF NOT EXISTS idx_pay_runs_period_start ON pay_runs(period_start DESC);
@@ -310,8 +339,12 @@ class PayrollRepository {
       CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
       CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires_at ON auth_challenges(expires_at);
       CREATE INDEX IF NOT EXISTS idx_withdrawals_employee_period ON withdrawals(employee_id, period_start, period_end);
+      CREATE INDEX IF NOT EXISTS idx_time_off_requests_employee_date ON time_off_requests(employee_id, date);
+      CREATE INDEX IF NOT EXISTS idx_time_off_requests_status_date ON time_off_requests(status, date);
     `);
         this.ensureColumn("employees", "employment_start_date", "TEXT");
+        this.ensureColumn("companies", "max_time_off_days_per_year", "INTEGER NOT NULL DEFAULT 20");
+        this.ensureColumn("schedules", "start_time", "TEXT NOT NULL DEFAULT '09:00'");
     }
     ensureColumn(table, column, definition) {
         const columns = this.db.prepare(`PRAGMA table_info(${table})`).all();
@@ -349,16 +382,17 @@ class PayrollRepository {
             this.db
                 .prepare(`INSERT INTO companies (
             id, name, pay_frequency, default_time_tracking_mode, treasury_usyc_cents,
-            auto_rebalance_enabled, auto_redeem_enabled, rebalance_threshold_cents, payout_notice_hours
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-                .run(payload.company.id, payload.company.name, payload.company.payFrequency, payload.company.defaultTimeTrackingMode, payload.company.treasuryUsycCents, Number(payload.company.autoRebalanceEnabled), Number(payload.company.autoRedeemEnabled), payload.company.rebalanceThresholdCents, payload.company.payoutNoticeHours);
+            auto_rebalance_enabled, auto_redeem_enabled, rebalance_threshold_cents, payout_notice_hours,
+            max_time_off_days_per_year
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                .run(payload.company.id, payload.company.name, payload.company.payFrequency, payload.company.defaultTimeTrackingMode, payload.company.treasuryUsycCents, Number(payload.company.autoRebalanceEnabled), Number(payload.company.autoRedeemEnabled), payload.company.rebalanceThresholdCents, payload.company.payoutNoticeHours, payload.company.maxTimeOffDaysPerYear);
             const insertTreasury = this.db.prepare("INSERT INTO treasury_balances (company_id, chain_id, chain_name, usdc_cents, is_hub) VALUES (?, ?, ?, ?, ?)");
             for (const balance of payload.treasuryBalances) {
                 insertTreasury.run(balance.companyId, balance.chainId, balance.chainName, balance.usdcCents, Number(balance.isHub));
             }
-            const insertSchedule = this.db.prepare("INSERT INTO schedules (id, company_id, name, timezone, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?)");
+            const insertSchedule = this.db.prepare("INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?, ?)");
             for (const schedule of payload.schedules) {
-                insertSchedule.run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
+                insertSchedule.run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.startTime, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
             }
             const insertEmployee = this.db.prepare(`INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
@@ -398,6 +432,12 @@ class PayrollRepository {
             for (const withdrawal of payload.withdrawals ?? []) {
                 insertWithdrawal.run(withdrawal.id, withdrawal.employeeId, withdrawal.walletAddress, withdrawal.amountCents, withdrawal.txHash, withdrawal.periodStart, withdrawal.periodEnd, withdrawal.createdAt, withdrawal.status);
             }
+            const insertTimeOffRequest = this.db.prepare(`INSERT INTO time_off_requests (
+          id, company_id, employee_id, date, note, status, created_at, updated_at, reviewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const request of payload.timeOffRequests ?? []) {
+                insertTimeOffRequest.run(request.id, request.companyId, request.employeeId, request.date, request.note, request.status, request.createdAt, request.updatedAt, request.reviewedAt);
+            }
         });
         this.removeDemoPayRuns();
     }
@@ -409,9 +449,10 @@ class PayrollRepository {
         this.db
             .prepare(`UPDATE companies
          SET name = ?, pay_frequency = ?, default_time_tracking_mode = ?, treasury_usyc_cents = ?,
-             auto_rebalance_enabled = ?, auto_redeem_enabled = ?, rebalance_threshold_cents = ?, payout_notice_hours = ?
+             auto_rebalance_enabled = ?, auto_redeem_enabled = ?, rebalance_threshold_cents = ?, payout_notice_hours = ?,
+             max_time_off_days_per_year = ?
          WHERE id = ?`)
-            .run(company.name, company.payFrequency, company.defaultTimeTrackingMode, company.treasuryUsycCents, Number(company.autoRebalanceEnabled), Number(company.autoRedeemEnabled), company.rebalanceThresholdCents, company.payoutNoticeHours, company.id);
+            .run(company.name, company.payFrequency, company.defaultTimeTrackingMode, company.treasuryUsycCents, Number(company.autoRebalanceEnabled), Number(company.autoRedeemEnabled), company.rebalanceThresholdCents, company.payoutNoticeHours, company.maxTimeOffDaysPerYear, company.id);
     }
     listTreasuryBalances() {
         return this.db
@@ -436,8 +477,8 @@ class PayrollRepository {
     }
     createSchedule(schedule) {
         this.db
-            .prepare("INSERT INTO schedules (id, company_id, name, timezone, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?)")
-            .run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
+            .prepare("INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.startTime, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
         return schedule;
     }
     updateSchedule(id, patch) {
@@ -446,8 +487,8 @@ class PayrollRepository {
             return null;
         const next = { ...current, ...patch, id };
         this.db
-            .prepare("UPDATE schedules SET company_id = ?, name = ?, timezone = ?, hours_per_day = ?, working_days_json = ? WHERE id = ?")
-            .run(next.companyId, next.name, next.timezone, next.hoursPerDay, JSON.stringify(next.workingDays), id);
+            .prepare("UPDATE schedules SET company_id = ?, name = ?, timezone = ?, start_time = ?, hours_per_day = ?, working_days_json = ? WHERE id = ?")
+            .run(next.companyId, next.name, next.timezone, next.startTime, next.hoursPerDay, JSON.stringify(next.workingDays), id);
         return next;
     }
     listEmployees(includeInactive = false) {
@@ -697,6 +738,42 @@ class PayrollRepository {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
             .run(withdrawal.id, withdrawal.employeeId, withdrawal.walletAddress, withdrawal.amountCents, withdrawal.txHash, withdrawal.periodStart, withdrawal.periodEnd, withdrawal.createdAt, withdrawal.status);
         return withdrawal;
+    }
+    listTimeOffRequests(employeeId) {
+        const rows = employeeId
+            ? this.db
+                .prepare("SELECT * FROM time_off_requests WHERE employee_id = ? ORDER BY date ASC, created_at ASC")
+                .all(employeeId)
+            : this.db
+                .prepare("SELECT * FROM time_off_requests ORDER BY date ASC, created_at ASC")
+                .all();
+        return rows.map(mapTimeOffRequest);
+    }
+    getTimeOffRequest(id) {
+        const row = this.db
+            .prepare("SELECT * FROM time_off_requests WHERE id = ?")
+            .get(id);
+        return row ? mapTimeOffRequest(row) : null;
+    }
+    createTimeOffRequest(request) {
+        this.db
+            .prepare(`INSERT INTO time_off_requests (
+          id, company_id, employee_id, date, note, status, created_at, updated_at, reviewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(request.id, request.companyId, request.employeeId, request.date, request.note, request.status, request.createdAt, request.updatedAt, request.reviewedAt);
+        return request;
+    }
+    updateTimeOffRequest(id, patch) {
+        const current = this.getTimeOffRequest(id);
+        if (!current)
+            return null;
+        const next = { ...current, ...patch, id };
+        this.db
+            .prepare(`UPDATE time_off_requests
+         SET company_id = ?, employee_id = ?, date = ?, note = ?, status = ?, created_at = ?, updated_at = ?, reviewed_at = ?
+         WHERE id = ?`)
+            .run(next.companyId, next.employeeId, next.date, next.note, next.status, next.createdAt, next.updatedAt, next.reviewedAt, id);
+        return next;
     }
 }
 exports.PayrollRepository = PayrollRepository;

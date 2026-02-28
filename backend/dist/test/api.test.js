@@ -7,12 +7,13 @@ const strict_1 = __importDefault(require("node:assert/strict"));
 const node_test_1 = __importDefault(require("node:test"));
 const app_1 = require("../src/app");
 const config_1 = require("../src/config");
-function createTestHarness() {
+function createTestHarness(overrides = {}) {
     const config = (0, config_1.loadConfig)({
         ...process.env,
         BACKEND_DB_PATH: ":memory:",
         BACKEND_SEED_DATE: "2026-02-28",
         BACKEND_JOBS_ENABLED: "false",
+        ...overrides,
     });
     const harness = (0, app_1.buildApp)(config);
     const employee = harness.repository.listEmployees()[0];
@@ -184,5 +185,135 @@ function createTestHarness() {
     });
     strict_1.default.equal(afterEarnings.statusCode, 200);
     strict_1.default.ok(afterEarnings.json().availableToWithdraw < beforeAvailable);
+    await app.close();
+});
+(0, node_test_1.default)("schedule-based earnings accrue linearly during the workday", async () => {
+    const { app } = createTestHarness({
+        BACKEND_SEED_DATE: "2026-02-27",
+        BACKEND_REFERENCE_NOW: "2026-02-27T18:00:00.000Z",
+    });
+    const earningsResponse = await app.inject({
+        method: "GET",
+        url: "/me/earnings",
+        headers: { authorization: "Bearer employee-token" },
+    });
+    strict_1.default.equal(earningsResponse.statusCode, 200);
+    const earnings = earningsResponse.json();
+    strict_1.default.ok(earnings.breakdown.currentPeriodDays % 1 !== 0);
+    strict_1.default.ok(earnings.currentPeriod.earned > 0);
+    await app.close();
+});
+(0, node_test_1.default)("employee day-off requests honor the annual limit and can be moved without adding extra days", async () => {
+    const { app } = createTestHarness();
+    const policyResponse = await app.inject({
+        method: "PATCH",
+        url: "/time-off/policy",
+        headers: { authorization: "Bearer admin-token" },
+        payload: { maxDaysPerYear: 1 },
+    });
+    strict_1.default.equal(policyResponse.statusCode, 200);
+    strict_1.default.equal(policyResponse.json().maxDaysPerYear, 1);
+    const createResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-03", note: "Family event" },
+    });
+    strict_1.default.equal(createResponse.statusCode, 200);
+    const created = createResponse.json();
+    strict_1.default.equal(created.status, "pending");
+    const secondCreateResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-04" },
+    });
+    strict_1.default.equal(secondCreateResponse.statusCode, 500);
+    const approveResponse = await app.inject({
+        method: "PATCH",
+        url: `/time-off/requests/${created.id}`,
+        headers: { authorization: "Bearer admin-token" },
+        payload: { status: "approved" },
+    });
+    strict_1.default.equal(approveResponse.statusCode, 200);
+    strict_1.default.equal(approveResponse.json().status, "approved");
+    const moveResponse = await app.inject({
+        method: "PATCH",
+        url: `/me/time-off/${created.id}`,
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-05", note: "Moved date" },
+    });
+    strict_1.default.equal(moveResponse.statusCode, 200);
+    strict_1.default.equal(moveResponse.json().date, "2026-03-05");
+    strict_1.default.equal(moveResponse.json().status, "pending");
+    const myTimeOffResponse = await app.inject({
+        method: "GET",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+    });
+    strict_1.default.equal(myTimeOffResponse.statusCode, 200);
+    strict_1.default.equal(myTimeOffResponse.json().allowance.maxDays, 1);
+    strict_1.default.equal(myTimeOffResponse.json().allowance.reservedDays, 1);
+    strict_1.default.equal(myTimeOffResponse.json().allowance.remainingDays, 0);
+    await app.close();
+});
+(0, node_test_1.default)("employee time-off requests reject past dates, non-working days, and duplicate active dates", async () => {
+    const { app } = createTestHarness();
+    const pastDateResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-02-27" },
+    });
+    strict_1.default.equal(pastDateResponse.statusCode, 500);
+    strict_1.default.match(pastDateResponse.json().error, /today or future working days/i);
+    const weekendResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-07" },
+    });
+    strict_1.default.equal(weekendResponse.statusCode, 500);
+    strict_1.default.match(weekendResponse.json().error, /scheduled working day/i);
+    const companyHolidayResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-05-25" },
+    });
+    strict_1.default.equal(companyHolidayResponse.statusCode, 500);
+    strict_1.default.match(companyHolidayResponse.json().error, /company holiday/i);
+    const createResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-03" },
+    });
+    strict_1.default.equal(createResponse.statusCode, 200);
+    const created = createResponse.json();
+    const duplicateCreateResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-03" },
+    });
+    strict_1.default.equal(duplicateCreateResponse.statusCode, 500);
+    strict_1.default.match(duplicateCreateResponse.json().error, /already have a day-off request/i);
+    const secondCreateResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-off",
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-04" },
+    });
+    strict_1.default.equal(secondCreateResponse.statusCode, 200);
+    const second = secondCreateResponse.json();
+    const moveToDuplicateResponse = await app.inject({
+        method: "PATCH",
+        url: `/me/time-off/${second.id}`,
+        headers: { authorization: "Bearer employee-token" },
+        payload: { date: "2026-03-03" },
+    });
+    strict_1.default.equal(moveToDuplicateResponse.statusCode, 500);
+    strict_1.default.match(moveToDuplicateResponse.json().error, /already have a day-off request/i);
     await app.close();
 });

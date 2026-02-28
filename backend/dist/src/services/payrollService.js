@@ -31,6 +31,7 @@ function toScheduleResponse(schedule) {
         id: schedule.id,
         name: schedule.name,
         timezone: schedule.timezone,
+        startTime: schedule.startTime,
         hoursPerDay: schedule.hoursPerDay,
         workingDays: schedule.workingDays,
     };
@@ -83,6 +84,36 @@ function toPolicyResponse(policy) {
         lastRunAt: policy.lastRunAt,
     };
 }
+function timeOffYearWindow(date) {
+    const year = Number(date.slice(0, 4));
+    const monthDay = date.slice(5);
+    if (monthDay >= "04-01") {
+        return {
+            yearStart: `${year}-04-01`,
+            yearEnd: `${year + 1}-03-31`,
+        };
+    }
+    return {
+        yearStart: `${year - 1}-04-01`,
+        yearEnd: `${year}-03-31`,
+    };
+}
+function countsAgainstTimeOffLimit(status) {
+    return status === "pending" || status === "approved";
+}
+function toTimeOffRequestResponse(request, employee) {
+    return {
+        id: request.id,
+        employeeId: request.employeeId,
+        employeeName: employee?.name ?? null,
+        date: request.date,
+        note: request.note,
+        status: request.status,
+        createdAt: request.createdAt,
+        updatedAt: request.updatedAt,
+        reviewedAt: request.reviewedAt,
+    };
+}
 function toTreasuryResponse(balances, company, options) {
     return {
         totalUsdc: (0, payroll_1.dollarsFromCents)(balances.reduce((total, balance) => total + balance.usdcCents, 0)),
@@ -133,8 +164,62 @@ class PayrollService {
     getRecipients() {
         return this.repository.listEmployees();
     }
+    getReferenceNow() {
+        return this.config.referenceNowOverride ?? (0, dates_1.nowIso)();
+    }
     getReferenceDate() {
-        return this.config.seedDate;
+        return this.getReferenceNow().slice(0, 10);
+    }
+    approvedTimeOffRequests(employeeId) {
+        return this.repository
+            .listTimeOffRequests(employeeId)
+            .filter((request) => request.status === "approved");
+    }
+    timeOffAllowance(employee, date = this.getReferenceDate(), excludeRequestId) {
+        const company = this.getCompany();
+        const { yearStart, yearEnd } = timeOffYearWindow(date);
+        const requests = this.repository
+            .listTimeOffRequests(employee.id)
+            .filter((request) => request.id !== excludeRequestId)
+            .filter((request) => request.date >= yearStart && request.date <= yearEnd);
+        const approvedDays = requests.filter((request) => request.status === "approved").length;
+        const reservedDays = requests.filter((request) => countsAgainstTimeOffLimit(request.status)).length;
+        return {
+            yearStart,
+            yearEnd,
+            maxDays: company.maxTimeOffDaysPerYear,
+            approvedDays,
+            reservedDays,
+            remainingDays: Math.max(company.maxTimeOffDaysPerYear - reservedDays, 0),
+        };
+    }
+    assertTimeOffWithinLimit(employee, date, excludeRequestId) {
+        const allowance = this.timeOffAllowance(employee, date, excludeRequestId);
+        if (allowance.reservedDays >= allowance.maxDays) {
+            throw new Error(`This request would exceed the ${allowance.maxDays}-day annual time-off limit for ${allowance.yearStart} to ${allowance.yearEnd}.`);
+        }
+        return allowance;
+    }
+    validateTimeOffDate(employee, date, excludeRequestId) {
+        if (date < this.getReferenceDate()) {
+            throw new Error("Time off can only be requested for today or future working days.");
+        }
+        const existing = this.repository
+            .listTimeOffRequests(employee.id)
+            .find((request) => request.id !== excludeRequestId &&
+            request.date === date &&
+            countsAgainstTimeOffLimit(request.status));
+        if (existing) {
+            throw new Error("You already have a day-off request booked for that date.");
+        }
+        if (this.repository.listHolidays().some((holiday) => holiday.date === date)) {
+            throw new Error("That date is already a company holiday and does not need a separate day-off request.");
+        }
+        const schedule = (0, payroll_1.getSchedule)(employee.scheduleId, this.repository.listSchedules());
+        const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
+        if (!schedule.workingDays.includes(dayOfWeek)) {
+            throw new Error("Time off can only be requested on a scheduled working day.");
+        }
     }
     getStoredTreasuryResponse(readError) {
         const company = this.getCompany();
@@ -196,9 +281,10 @@ class PayrollService {
         const withdrawals = this.repository.listWithdrawals();
         const schedules = this.repository.listSchedules();
         const holidays = this.repository.listHolidays();
+        const approvedTimeOffRequests = this.approvedTimeOffRequests();
         const timeEntries = this.repository.listEmployees().flatMap((employee) => this.repository.listTimeEntries(employee.id));
         return this.getRecipients().map((employee) => {
-            const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, this.getReferenceDate());
+            const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, approvedTimeOffRequests.filter((request) => request.employeeId === employee.id), timeEntries, this.getReferenceNow(), this.getReferenceDate());
             return toRecipientResponse(employee, metrics.availableToWithdrawCents);
         });
     }
@@ -265,6 +351,7 @@ class PayrollService {
             companyId: this.getCompany().id,
             name: input.name,
             timezone: input.timezone,
+            startTime: input.startTime,
             hoursPerDay: input.hoursPerDay,
             workingDays: input.workingDays,
         };
@@ -311,6 +398,103 @@ class PayrollService {
     }
     getMeHolidays() {
         return this.listHolidays();
+    }
+    getTimeOffPolicy() {
+        const company = this.getCompany();
+        return {
+            maxDaysPerYear: company.maxTimeOffDaysPerYear,
+            yearStartMonth: 4,
+            yearStartDay: 1,
+        };
+    }
+    updateTimeOffPolicy(input) {
+        const company = this.getCompany();
+        company.maxTimeOffDaysPerYear = input.maxDaysPerYear;
+        this.repository.updateCompany(company);
+        return this.getTimeOffPolicy();
+    }
+    listMyTimeOff(address) {
+        const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
+        const requests = this.repository.listTimeOffRequests(employee.id);
+        return {
+            requests: requests.map((request) => toTimeOffRequestResponse(request, employee)),
+            allowance: this.timeOffAllowance(employee),
+        };
+    }
+    listTimeOffRequests() {
+        const employees = new Map(this.repository.listEmployees(true).map((employee) => [employee.id, employee]));
+        return {
+            policy: this.getTimeOffPolicy(),
+            requests: this.repository
+                .listTimeOffRequests()
+                .map((request) => toTimeOffRequestResponse(request, employees.get(request.employeeId) ?? null)),
+        };
+    }
+    createMyTimeOff(address, input) {
+        const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
+        this.validateTimeOffDate(employee, input.date);
+        this.assertTimeOffWithinLimit(employee, input.date);
+        const now = (0, dates_1.nowIso)();
+        const request = {
+            id: (0, ids_1.createId)("timeoff"),
+            companyId: employee.companyId,
+            employeeId: employee.id,
+            date: input.date,
+            note: input.note?.trim() || null,
+            status: "pending",
+            createdAt: now,
+            updatedAt: now,
+            reviewedAt: null,
+        };
+        this.repository.createTimeOffRequest(request);
+        return toTimeOffRequestResponse(request, employee);
+    }
+    updateMyTimeOff(address, id, input) {
+        const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
+        const current = requireRecord(this.repository.getTimeOffRequest(id), "Time-off request not found.");
+        if (current.employeeId !== employee.id) {
+            throw new Error("You can only update your own time-off requests.");
+        }
+        if (current.date < this.getReferenceDate()) {
+            throw new Error("Past time-off requests cannot be changed.");
+        }
+        const patch = {
+            updatedAt: (0, dates_1.nowIso)(),
+        };
+        if (input.status === "cancelled") {
+            patch.status = "cancelled";
+            patch.reviewedAt = current.reviewedAt;
+        }
+        if (input.date && input.date !== current.date) {
+            this.validateTimeOffDate(employee, input.date, id);
+            this.assertTimeOffWithinLimit(employee, input.date, id);
+            patch.date = input.date;
+            patch.status = "pending";
+            patch.reviewedAt = null;
+        }
+        if (input.note !== undefined) {
+            patch.note = input.note?.trim() || null;
+            if (current.status === "approved" && input.date === undefined) {
+                patch.status = "pending";
+                patch.reviewedAt = null;
+            }
+        }
+        const updated = requireRecord(this.repository.updateTimeOffRequest(id, patch), "Time-off request not found.");
+        return toTimeOffRequestResponse(updated, employee);
+    }
+    reviewTimeOffRequest(id, input) {
+        const current = requireRecord(this.repository.getTimeOffRequest(id), "Time-off request not found.");
+        const employee = requireRecord(this.repository.getEmployee(current.employeeId), "Employee not found.");
+        if (input.status === "approved") {
+            this.validateTimeOffDate(employee, current.date, id);
+            this.assertTimeOffWithinLimit(employee, current.date, id);
+        }
+        const updated = requireRecord(this.repository.updateTimeOffRequest(id, {
+            status: input.status,
+            updatedAt: (0, dates_1.nowIso)(),
+            reviewedAt: (0, dates_1.nowIso)(),
+        }), "Time-off request not found.");
+        return toTimeOffRequestResponse(updated, employee);
     }
     getMyTimeEntries(address, start, end) {
         const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
@@ -363,8 +547,9 @@ class PayrollService {
         const withdrawals = this.repository.listWithdrawals(employee.id);
         const schedules = this.repository.listSchedules();
         const holidays = this.repository.listHolidays();
+        const approvedTimeOffRequests = this.approvedTimeOffRequests(employee.id);
         const timeEntries = this.repository.listTimeEntries(employee.id);
-        const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, this.getReferenceDate());
+        const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, approvedTimeOffRequests, timeEntries, this.getReferenceNow(), this.getReferenceDate());
         const currentPeriod = (0, dates_1.currentSemimonthlyPeriod)(this.getReferenceDate());
         return {
             employee: toRecipientResponse(employee),
@@ -395,8 +580,9 @@ class PayrollService {
         const withdrawals = this.repository.listWithdrawals(employee.id);
         const schedules = this.repository.listSchedules();
         const holidays = this.repository.listHolidays();
+        const approvedTimeOffRequests = this.approvedTimeOffRequests(employee.id);
         const timeEntries = this.repository.listTimeEntries(employee.id);
-        const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, this.getReferenceDate());
+        const metrics = (0, payroll_1.calculateRecipientMetrics)(employee, payRuns, payRunItems, withdrawals, schedules, holidays, approvedTimeOffRequests, timeEntries, this.getReferenceNow(), this.getReferenceDate());
         if (metrics.availableToWithdrawCents <= 0) {
             throw new Error("No earned wages are available to withdraw.");
         }
@@ -443,8 +629,9 @@ class PayrollService {
         const withdrawals = this.repository.listWithdrawals();
         const schedules = this.repository.listSchedules();
         const holidays = this.repository.listHolidays();
+        const approvedTimeOffRequests = this.approvedTimeOffRequests();
         const timeEntries = employees.flatMap((employee) => this.repository.listTimeEntries(employee.id));
-        return (0, payroll_1.buildPayRunItemsPreview)(employees, payRuns, payRunItems, withdrawals, schedules, holidays, timeEntries, periodStart, periodEnd, this.getReferenceDate(), this.config.arcChainId).filter((item) => item.amountCents > 0);
+        return (0, payroll_1.buildPayRunItemsPreview)(employees, payRuns, payRunItems, withdrawals, schedules, holidays, approvedTimeOffRequests, timeEntries, periodStart, periodEnd, this.getReferenceNow(), this.getReferenceDate(), this.config.arcChainId).filter((item) => item.amountCents > 0);
     }
     createPayRunItemsRecords(payRunId, previews) {
         return previews.map((item, index) => ({

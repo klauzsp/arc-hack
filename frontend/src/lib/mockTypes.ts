@@ -10,6 +10,7 @@ export interface Schedule {
   workingDays: number[]; // 0-6
   hoursPerDay: number;
   timezone?: string;
+  startTime?: string;
 }
 
 export interface TimeEntry {
@@ -60,6 +61,39 @@ export interface ChainBalance {
   chainId: number;
   chainName: string;
   usdcBalance: number;
+}
+
+export interface HolidayRecord {
+  id: string;
+  date: string;
+  name: string;
+}
+
+export interface TimeOffRequest {
+  id: string;
+  employeeId: string;
+  employeeName?: string | null;
+  date: string;
+  note?: string | null;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string | null;
+}
+
+export interface TimeOffAllowance {
+  yearStart: string;
+  yearEnd: string;
+  maxDays: number;
+  approvedDays: number;
+  reservedDays: number;
+  remainingDays: number;
+}
+
+export interface TimeOffPolicy {
+  maxDaysPerYear: number;
+  yearStartMonth: number;
+  yearStartDay: number;
 }
 
 export interface Employee {

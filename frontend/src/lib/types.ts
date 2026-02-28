@@ -1,12 +1,16 @@
 export type {
   ChainBalance,
   Employee,
+  HolidayRecord,
   PayRun,
   PayRunItem,
   PayRunStatus,
   PayType,
   Recipient,
   Schedule,
+  TimeOffAllowance,
+  TimeOffPolicy,
+  TimeOffRequest,
   TimeEntry,
   TimeTrackingMode,
 } from "./mockTypes";

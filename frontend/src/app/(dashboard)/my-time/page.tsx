@@ -37,6 +37,10 @@ function formatDate(value: string) {
   });
 }
 
+function formatDays(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
 export default function MyTimePage() {
   const { address } = useAccount();
   const { role } = useAuthSession();
@@ -55,6 +59,10 @@ export default function MyTimePage() {
     getRecipientTimeEntries,
     clockIn,
     clockOut,
+    myTimeOffRequests,
+    myTimeOffAllowance,
+    createMyTimeOff,
+    updateMyTimeOff,
     loading,
     error,
   } = usePayroll();
@@ -63,6 +71,12 @@ export default function MyTimePage() {
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<"clock_in" | "clock_out" | null>(null);
+  const [timeOffDate, setTimeOffDate] = useState(today);
+  const [timeOffNote, setTimeOffNote] = useState("");
+  const [editingTimeOffId, setEditingTimeOffId] = useState<string | null>(null);
+  const [timeOffMessage, setTimeOffMessage] = useState<string | null>(null);
+  const [timeOffError, setTimeOffError] = useState<string | null>(null);
+  const [isSavingTimeOff, setIsSavingTimeOff] = useState(false);
 
   const connectedRecipient = getRecipientByWallet(address);
   const isAdmin = role === "admin";
@@ -91,6 +105,13 @@ export default function MyTimePage() {
     setClockInTime(activeSession?.clockIn ?? "09:00");
     setClockOutTime(activeSession ? addHours(activeSession.clockIn, schedule.hoursPerDay || 8) : "17:00");
   }, [recipient?.id, activeSession?.clockIn, schedule.hoursPerDay]);
+
+  useEffect(() => {
+    if (!editingTimeOffId) {
+      setTimeOffDate(today);
+      setTimeOffNote("");
+    }
+  }, [today, editingTimeOffId]);
 
   if (loading && !metrics) {
     return <div className="text-sm text-slate-500">Loading time data…</div>;
@@ -130,6 +151,57 @@ export default function MyTimePage() {
     } finally {
       setIsSubmitting(null);
     }
+  };
+
+  const handleSaveTimeOff = async () => {
+    setTimeOffMessage(null);
+    setTimeOffError(null);
+    setIsSavingTimeOff(true);
+    try {
+      if (editingTimeOffId) {
+        await updateMyTimeOff(editingTimeOffId, { date: timeOffDate, note: timeOffNote || null });
+        setTimeOffMessage("Time-off request updated.");
+      } else {
+        await createMyTimeOff({ date: timeOffDate, note: timeOffNote || null });
+        setTimeOffMessage("Time-off request submitted for approval.");
+      }
+      setEditingTimeOffId(null);
+      setTimeOffDate(today);
+      setTimeOffNote("");
+    } catch (timeOffActionError) {
+      setTimeOffError(timeOffActionError instanceof Error ? timeOffActionError.message : "Failed to save day off.");
+    } finally {
+      setIsSavingTimeOff(false);
+    }
+  };
+
+  const handleCancelTimeOff = async (id: string) => {
+    setTimeOffMessage(null);
+    setTimeOffError(null);
+    setIsSavingTimeOff(true);
+    try {
+      await updateMyTimeOff(id, { status: "cancelled" });
+      if (editingTimeOffId === id) {
+        setEditingTimeOffId(null);
+        setTimeOffDate(today);
+        setTimeOffNote("");
+      }
+      setTimeOffMessage("Time-off request cancelled.");
+    } catch (timeOffActionError) {
+      setTimeOffError(timeOffActionError instanceof Error ? timeOffActionError.message : "Failed to cancel day off.");
+    } finally {
+      setIsSavingTimeOff(false);
+    }
+  };
+
+  const beginEditTimeOff = (id: string) => {
+    const current = myTimeOffRequests.find((request) => request.id === id);
+    if (!current) return;
+    setEditingTimeOffId(id);
+    setTimeOffDate(current.date);
+    setTimeOffNote(current.note ?? "");
+    setTimeOffMessage(null);
+    setTimeOffError(null);
   };
 
   return (
@@ -350,11 +422,11 @@ export default function MyTimePage() {
               <div className="mt-4 grid gap-3">
                 <div className="rounded-lg bg-slate-50 px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Current period</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{metrics.currentPeriodDays} working days</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatDays(metrics.currentPeriodDays)} working days</p>
                 </div>
                 <div className="rounded-lg bg-slate-50 px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Schedule hours</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{(metrics.currentPeriodDays * schedule.hoursPerDay).toFixed(1)} scheduled hours</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{(metrics.currentPeriodHours).toFixed(2)} scheduled hours earned so far</p>
                 </div>
                 <div className="rounded-lg bg-slate-50 px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Holiday exclusions</p>
@@ -383,6 +455,143 @@ export default function MyTimePage() {
                   </div>
                 );
               })}
+            </div>
+          </Card>
+        </>
+      )}
+
+      {canManageOwnTime && (
+        <>
+          {(timeOffMessage || timeOffError) && (
+            <Card className={`${timeOffError ? "border-red-200 bg-red-50/40" : "border-emerald-200 bg-emerald-50/40"} p-4`}>
+              <p className={`text-sm font-semibold ${timeOffError ? "text-red-800" : "text-emerald-800"}`}>
+                {timeOffError || timeOffMessage}
+              </p>
+            </Card>
+          )}
+
+          <Card className="p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">My Days Off</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Request days off across the April 1 to March 31 allowance year. Days off must land on a scheduled working day that is not already a company holiday. If you are at the limit, you can still move an existing booked day.
+                </p>
+              </div>
+              {myTimeOffAllowance && (
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg bg-slate-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Allowance</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{myTimeOffAllowance.maxDays} days</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Booked</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{myTimeOffAllowance.reservedDays} days</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Remaining</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{myTimeOffAllowance.remainingDays} days</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-4 grid gap-4 md:grid-cols-[1fr,1fr,auto]">
+              <input
+                type="date"
+                value={timeOffDate}
+                min={today}
+                onChange={(event) => setTimeOffDate(event.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <input
+                value={timeOffNote}
+                onChange={(event) => setTimeOffNote(event.target.value)}
+                placeholder="Optional note"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                disabled={isSavingTimeOff || !timeOffDate}
+                onClick={() => {
+                  void handleSaveTimeOff();
+                }}
+                className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200"
+              >
+                {isSavingTimeOff ? "Saving..." : editingTimeOffId ? "Save Change" : "Request Day Off"}
+              </button>
+            </div>
+            {editingTimeOffId && (
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingTimeOffId(null);
+                    setTimeOffDate(today);
+                    setTimeOffNote("");
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  Cancel Edit
+                </button>
+              </div>
+            )}
+            {myTimeOffAllowance && (
+              <p className="mt-3 text-xs text-slate-500">
+                Allowance window: {formatDate(myTimeOffAllowance.yearStart)} to {formatDate(myTimeOffAllowance.yearEnd)}.
+              </p>
+            )}
+          </Card>
+
+          <Card>
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h3 className="text-sm font-semibold text-slate-900">Requested Days Off</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Date</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Note</th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {myTimeOffRequests.map((request) => (
+                    <tr key={request.id}>
+                      <td className="px-5 py-3 text-sm font-medium text-slate-900">{request.date}</td>
+                      <td className="px-5 py-3 text-sm text-slate-600">{request.note || "—"}</td>
+                      <td className="px-5 py-3 text-right">
+                        <Badge variant={request.status === "approved" ? "success" : request.status === "pending" ? "warning" : "default"}>
+                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {request.date >= today && request.status !== "cancelled" && request.status !== "rejected" && (
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => beginEditTimeOff(request.id)}
+                              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                            >
+                              Change
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleCancelTimeOff(request.id);
+                              }}
+                              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
         </>

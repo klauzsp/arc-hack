@@ -18,6 +18,7 @@ function createSeedPayload(input) {
         autoRedeemEnabled: true,
         rebalanceThresholdCents: 120_000_00,
         payoutNoticeHours: 24,
+        maxTimeOffDaysPerYear: 20,
     };
     const schedules = [
         {
@@ -25,6 +26,7 @@ function createSeedPayload(input) {
             companyId,
             name: "Headquarters",
             timezone: "America/New_York",
+            startTime: "09:00",
             hoursPerDay: 8,
             workingDays: [1, 2, 3, 4, 5],
         },
@@ -33,6 +35,7 @@ function createSeedPayload(input) {
             companyId,
             name: "Operations",
             timezone: "America/Los_Angeles",
+            startTime: "08:30",
             hoursPerDay: 7.5,
             workingDays: [1, 2, 3, 4, 5],
         },
@@ -188,6 +191,7 @@ function createSeedPayload(input) {
     const payRuns = [];
     const payRunItems = [];
     const withdrawals = [];
+    const timeOffRequests = [];
     const treasuryBalances = [
         { companyId, chainId: arcChainId, chainName: "Arc", usdcCents: 510_000_00, isHub: true },
         { companyId, chainId: 8453, chainName: "Base", usdcCents: 120_000_00, isHub: false },
@@ -225,6 +229,7 @@ function createSeedPayload(input) {
         payRunItems,
         policies,
         withdrawals,
+        timeOffRequests,
     };
 }
 function normalizeSeedChainId(chainPreference, arcChainId) {

@@ -3,12 +3,13 @@ import test from "node:test";
 import { buildApp } from "../src/app";
 import { loadConfig } from "../src/config";
 
-function createTestHarness() {
+function createTestHarness(overrides: Record<string, string> = {}) {
   const config = loadConfig({
     ...process.env,
     BACKEND_DB_PATH: ":memory:",
     BACKEND_SEED_DATE: "2026-02-28",
     BACKEND_JOBS_ENABLED: "false",
+    ...overrides,
   });
   const harness = buildApp(config);
   const employee = harness.repository.listEmployees()[0];
@@ -208,6 +209,156 @@ test("employee can use custom clock times and withdraw earned wages from treasur
   });
   assert.equal(afterEarnings.statusCode, 200);
   assert.ok(afterEarnings.json().availableToWithdraw < beforeAvailable);
+
+  await app.close();
+});
+
+test("schedule-based earnings accrue linearly during the workday", async () => {
+  const { app } = createTestHarness({
+    BACKEND_SEED_DATE: "2026-02-27",
+    BACKEND_REFERENCE_NOW: "2026-02-27T18:00:00.000Z",
+  });
+
+  const earningsResponse = await app.inject({
+    method: "GET",
+    url: "/me/earnings",
+    headers: { authorization: "Bearer employee-token" },
+  });
+  assert.equal(earningsResponse.statusCode, 200);
+  const earnings = earningsResponse.json();
+  assert.ok(earnings.breakdown.currentPeriodDays % 1 !== 0);
+  assert.ok(earnings.currentPeriod.earned > 0);
+
+  await app.close();
+});
+
+test("employee day-off requests honor the annual limit and can be moved without adding extra days", async () => {
+  const { app } = createTestHarness();
+
+  const policyResponse = await app.inject({
+    method: "PATCH",
+    url: "/time-off/policy",
+    headers: { authorization: "Bearer admin-token" },
+    payload: { maxDaysPerYear: 1 },
+  });
+  assert.equal(policyResponse.statusCode, 200);
+  assert.equal(policyResponse.json().maxDaysPerYear, 1);
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-03", note: "Family event" },
+  });
+  assert.equal(createResponse.statusCode, 200);
+  const created = createResponse.json() as { id: string; status: string; date: string };
+  assert.equal(created.status, "pending");
+
+  const secondCreateResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-04" },
+  });
+  assert.equal(secondCreateResponse.statusCode, 500);
+
+  const approveResponse = await app.inject({
+    method: "PATCH",
+    url: `/time-off/requests/${created.id}`,
+    headers: { authorization: "Bearer admin-token" },
+    payload: { status: "approved" },
+  });
+  assert.equal(approveResponse.statusCode, 200);
+  assert.equal(approveResponse.json().status, "approved");
+
+  const moveResponse = await app.inject({
+    method: "PATCH",
+    url: `/me/time-off/${created.id}`,
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-05", note: "Moved date" },
+  });
+  assert.equal(moveResponse.statusCode, 200);
+  assert.equal(moveResponse.json().date, "2026-03-05");
+  assert.equal(moveResponse.json().status, "pending");
+
+  const myTimeOffResponse = await app.inject({
+    method: "GET",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+  });
+  assert.equal(myTimeOffResponse.statusCode, 200);
+  assert.equal(myTimeOffResponse.json().allowance.maxDays, 1);
+  assert.equal(myTimeOffResponse.json().allowance.reservedDays, 1);
+  assert.equal(myTimeOffResponse.json().allowance.remainingDays, 0);
+
+  await app.close();
+});
+
+test("employee time-off requests reject past dates, non-working days, and duplicate active dates", async () => {
+  const { app } = createTestHarness();
+
+  const pastDateResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-02-27" },
+  });
+  assert.equal(pastDateResponse.statusCode, 500);
+  assert.match(pastDateResponse.json().error as string, /today or future working days/i);
+
+  const weekendResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-07" },
+  });
+  assert.equal(weekendResponse.statusCode, 500);
+  assert.match(weekendResponse.json().error as string, /scheduled working day/i);
+
+  const companyHolidayResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-05-25" },
+  });
+  assert.equal(companyHolidayResponse.statusCode, 500);
+  assert.match(companyHolidayResponse.json().error as string, /company holiday/i);
+
+  const createResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-03" },
+  });
+  assert.equal(createResponse.statusCode, 200);
+  const created = createResponse.json() as { id: string };
+
+  const duplicateCreateResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-03" },
+  });
+  assert.equal(duplicateCreateResponse.statusCode, 500);
+  assert.match(duplicateCreateResponse.json().error as string, /already have a day-off request/i);
+
+  const secondCreateResponse = await app.inject({
+    method: "POST",
+    url: "/me/time-off",
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-04" },
+  });
+  assert.equal(secondCreateResponse.statusCode, 200);
+  const second = secondCreateResponse.json() as { id: string };
+
+  const moveToDuplicateResponse = await app.inject({
+    method: "PATCH",
+    url: `/me/time-off/${second.id}`,
+    headers: { authorization: "Bearer employee-token" },
+    payload: { date: "2026-03-03" },
+  });
+  assert.equal(moveToDuplicateResponse.statusCode, 500);
+  assert.match(moveToDuplicateResponse.json().error as string, /already have a day-off request/i);
 
   await app.close();
 });

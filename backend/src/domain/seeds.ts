@@ -8,6 +8,7 @@ import type {
   PayRunRecord,
   PolicyRecord,
   ScheduleRecord,
+  TimeOffRequestRecord,
   TimeEntryRecord,
   TreasuryBalanceRecord,
   WithdrawalRecord,
@@ -24,6 +25,7 @@ interface SeedPayload {
   payRunItems: PayRunItemRecord[];
   policies: PolicyRecord[];
   withdrawals: WithdrawalRecord[];
+  timeOffRequests: TimeOffRequestRecord[];
 }
 
 export function createSeedPayload(input: {
@@ -46,6 +48,7 @@ export function createSeedPayload(input: {
     autoRedeemEnabled: true,
     rebalanceThresholdCents: 120_000_00,
     payoutNoticeHours: 24,
+    maxTimeOffDaysPerYear: 20,
   };
 
   const schedules: ScheduleRecord[] = [
@@ -54,6 +57,7 @@ export function createSeedPayload(input: {
       companyId,
       name: "Headquarters",
       timezone: "America/New_York",
+      startTime: "09:00",
       hoursPerDay: 8,
       workingDays: [1, 2, 3, 4, 5],
     },
@@ -62,6 +66,7 @@ export function createSeedPayload(input: {
       companyId,
       name: "Operations",
       timezone: "America/Los_Angeles",
+      startTime: "08:30",
       hoursPerDay: 7.5,
       workingDays: [1, 2, 3, 4, 5],
     },
@@ -221,6 +226,7 @@ export function createSeedPayload(input: {
   const payRuns: PayRunRecord[] = [];
   const payRunItems: PayRunItemRecord[] = [];
   const withdrawals: WithdrawalRecord[] = [];
+  const timeOffRequests: TimeOffRequestRecord[] = [];
 
   const treasuryBalances: TreasuryBalanceRecord[] = [
     { companyId, chainId: arcChainId, chainName: "Arc", usdcCents: 510_000_00, isHub: true },
@@ -261,6 +267,7 @@ export function createSeedPayload(input: {
     payRunItems,
     policies,
     withdrawals,
+    timeOffRequests,
   };
 }
 

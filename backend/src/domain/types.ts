@@ -15,6 +15,7 @@ export interface CompanyRecord {
   autoRedeemEnabled: boolean;
   rebalanceThresholdCents: number;
   payoutNoticeHours: number;
+  maxTimeOffDaysPerYear: number;
 }
 
 export interface TreasuryBalanceRecord {
@@ -47,6 +48,7 @@ export interface ScheduleRecord {
   companyId: string;
   name: string;
   timezone: string;
+  startTime: string;
   hoursPerDay: number;
   workingDays: number[];
 }
@@ -112,6 +114,20 @@ export interface WithdrawalRecord {
   periodEnd: string;
   createdAt: string;
   status: "paid" | "processing" | "failed";
+}
+
+export type TimeOffStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export interface TimeOffRequestRecord {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  date: string;
+  note: string | null;
+  status: TimeOffStatus;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt: string | null;
 }
 
 export interface SessionRecord {

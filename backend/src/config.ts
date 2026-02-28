@@ -27,6 +27,7 @@ export interface AppConfig {
   jobsEnabled: boolean;
   arcChainId: number;
   chainMode: ChainMode;
+  referenceNowOverride?: string;
   liveChain?: LiveChainConfig;
 }
 
@@ -41,16 +42,25 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
   return value === "1" || value.toLowerCase() === "true";
 }
 
+function workspaceRoot() {
+  return path.basename(process.cwd()) === "backend" ? path.resolve(process.cwd(), "..") : process.cwd();
+}
+
+function resolveWorkspacePath(value: string) {
+  return path.isAbsolute(value) ? value : path.resolve(workspaceRoot(), value);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const chainMode = (env.CHAIN_MODE?.toLowerCase() === "live" ? "live" : "mock") satisfies ChainMode;
-  const defaultDbPath = path.resolve(process.cwd(), "backend", "data", "payroll.sqlite");
+  const defaultDbPath = resolveWorkspacePath(path.join("backend", "data", "payroll.sqlite"));
   const defaultArcRpcUrl = "https://rpc.testnet.arc.network";
   const dbPath =
     env.BACKEND_DB_PATH === ":memory:"
       ? ":memory:"
       : env.BACKEND_DB_PATH
-        ? path.resolve(env.BACKEND_DB_PATH)
+        ? resolveWorkspacePath(env.BACKEND_DB_PATH)
         : defaultDbPath;
+  const today = new Date().toISOString().slice(0, 10);
 
   const config: AppConfig = {
     host: env.BACKEND_HOST ?? "127.0.0.1",
@@ -62,10 +72,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     companyName: env.BACKEND_COMPANY_NAME ?? "Arc Payroll Demo",
     adminWallet:
       (env.BACKEND_ADMIN_WALLET ?? "0x13e00D9810d3C8Dc19A8C9A172fd9A8aC56e94e0").toLowerCase(),
-    seedDate: env.BACKEND_SEED_DATE ?? "2026-02-28",
+    seedDate: env.BACKEND_SEED_DATE ?? today,
     jobsEnabled: parseBoolean(env.BACKEND_JOBS_ENABLED, false),
     arcChainId: parseNumber(env.BACKEND_ARC_CHAIN_ID, 5_042_002),
     chainMode,
+    referenceNowOverride: env.BACKEND_REFERENCE_NOW?.trim() || undefined,
   };
 
   if (chainMode === "live") {
