@@ -28,6 +28,10 @@ type FrontendConfigResponse = {
   arcUsycAddressSource: "env" | "default";
   arcUsycTellerAddress: string;
   arcUsycTellerAddressSource: "env" | "default";
+  circleAppIdConfigured: boolean;
+  circleAppIdSource: "env" | "missing";
+  circleGoogleClientIdConfigured: boolean;
+  circleGoogleClientIdSource: "env" | "missing";
   note: string;
 };
 
@@ -156,6 +160,26 @@ export function FrontendConfigCard() {
           </div>
           <p className="mt-2 break-all text-sm font-medium text-slate-900">
             {config?.arcUsycTellerAddress ?? "Loading..."}
+          </p>
+        </div>
+
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Circle App ID</p>
+            {config && sourceBadge(config.circleAppIdSource)}
+          </div>
+          <p className="mt-2 text-sm font-medium text-slate-900">
+            {config?.circleAppIdConfigured ? "Configured" : "Not configured"}
+          </p>
+        </div>
+
+        <div className="rounded-lg bg-slate-50 p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Circle Google OAuth</p>
+            {config && sourceBadge(config.circleGoogleClientIdSource)}
+          </div>
+          <p className="mt-2 text-sm font-medium text-slate-900">
+            {config?.circleGoogleClientIdConfigured ? "Configured" : "Not configured"}
           </p>
         </div>
 

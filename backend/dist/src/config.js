@@ -16,6 +16,15 @@ function parseBoolean(value, fallback) {
         return fallback;
     return value === "1" || value.toLowerCase() === "true";
 }
+function parseCorsOrigins(value) {
+    if (!value?.trim()) {
+        return ["http://localhost:3000", "http://127.0.0.1:3000"];
+    }
+    return value
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+}
 function workspaceRoot() {
     return node_path_1.default.basename(process.cwd()) === "backend" ? node_path_1.default.resolve(process.cwd(), "..") : process.cwd();
 }
@@ -35,7 +44,7 @@ function loadConfig(env = process.env) {
     const config = {
         host: env.BACKEND_HOST ?? "127.0.0.1",
         port: parseNumber(env.BACKEND_PORT, 3001),
-        corsOrigin: env.BACKEND_CORS_ORIGIN ?? "http://localhost:3000",
+        corsOrigins: parseCorsOrigins(env.BACKEND_CORS_ORIGIN),
         dbPath,
         sessionTtlHours: parseNumber(env.BACKEND_SESSION_TTL_HOURS, 24),
         companyId: env.BACKEND_COMPANY_ID ?? "company-arc",
@@ -52,6 +61,7 @@ function loadConfig(env = process.env) {
         const privateKey = env.BACKEND_PRIVATE_KEY;
         const coreAddress = env.BACKEND_CORE_ADDRESS;
         const payRunAddress = env.BACKEND_PAYRUN_ADDRESS;
+        const cctpBridgeAddress = env.BACKEND_CCTP_BRIDGE_ADDRESS;
         const rebalanceAddress = env.BACKEND_REBALANCE_ADDRESS;
         const usdcAddress = (env.BACKEND_USDC_ADDRESS ??
             "0x3600000000000000000000000000000000000000");
@@ -68,6 +78,7 @@ function loadConfig(env = process.env) {
             privateKey,
             coreAddress,
             payRunAddress,
+            cctpBridgeAddress,
             rebalanceAddress,
             usdcAddress,
             usycAddress,

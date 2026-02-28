@@ -24,7 +24,7 @@ type RecipientFormValues = {
   destinationChainId?: number | null;
   destinationWalletAddress?: string | null;
   scheduleId?: string | null;
-  timeTrackingMode: Recipient["timeTrackingMode"];
+  timeTrackingMode?: Recipient["timeTrackingMode"];
   employmentStartDate?: string | null;
   active?: boolean;
 };

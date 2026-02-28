@@ -182,6 +182,56 @@ class PayrollService {
     getReferenceDate() {
         return this.getReferenceNow().slice(0, 10);
     }
+    clockToMinutes(clock, label) {
+        const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(clock);
+        if (!match) {
+            throw new Error(`${label} must use a valid 24-hour time.`);
+        }
+        return Number(match[1]) * 60 + Number(match[2]);
+    }
+    assertTimeEntryWindow(input) {
+        const start = this.clockToMinutes(input.clockIn, "Clock-in time");
+        const end = input.clockOut ? this.clockToMinutes(input.clockOut, "Clock-out time") : null;
+        if (end !== null && end <= start) {
+            throw new Error("Clock-out time must be later than clock-in time.");
+        }
+        for (const entry of input.entries) {
+            if (entry.id === input.excludeEntryId)
+                continue;
+            const otherStart = this.clockToMinutes(entry.clockIn, "Clock-in time");
+            const otherEnd = entry.clockOut ? this.clockToMinutes(entry.clockOut, "Clock-out time") : null;
+            if (end === null) {
+                if (otherEnd !== null && start >= otherStart && start < otherEnd) {
+                    throw new Error(`This time entry overlaps an existing entry on ${input.date}.`);
+                }
+                continue;
+            }
+            if (otherEnd === null) {
+                if (start >= otherStart || end > otherStart) {
+                    throw new Error(`This time entry overlaps an existing entry on ${input.date}.`);
+                }
+                continue;
+            }
+            if (start < otherEnd && otherStart < end) {
+                throw new Error(`This time entry overlaps an existing entry on ${input.date}.`);
+            }
+        }
+    }
+    resolvePayoutDestination(employee) {
+        const walletAddress = publicWalletAddress(employee.destinationWalletAddress) ??
+            publicWalletAddress(employee.walletAddress);
+        if (!walletAddress) {
+            throw new Error("Employee is missing a valid payout wallet address.");
+        }
+        const destinationChainId = employee.destinationChainId ?? (0, payroll_1.chainIdFromPreference)(employee.chainPreference, this.config.arcChainId);
+        const route = (0, cctp_1.getCctpRouteByDomain)(destinationChainId);
+        return {
+            walletAddress,
+            destinationChainId,
+            chainPreference: employee.chainPreference ?? route?.preference ?? "Arc",
+            chainName: route?.displayName ?? "Arc Testnet",
+        };
+    }
     approvedTimeOffRequests(employeeId) {
         return this.repository
             .listTimeOffRequests(employeeId)
@@ -319,6 +369,18 @@ class PayrollService {
         const normalizedWalletAddress = input.walletAddress?.trim()
             ? input.walletAddress.toLowerCase()
             : `pending:${employeeId}`;
+        const isInviteRecipient = !normalizedWalletAddress.startsWith("0x");
+        if (isInviteRecipient) {
+            if (!input.scheduleId) {
+                throw new Error("Invite-based recipient creation requires a schedule.");
+            }
+            if (!input.timeTrackingMode) {
+                throw new Error("Invite-based recipient creation requires a tracking mode.");
+            }
+            if (!input.employmentStartDate) {
+                throw new Error("Invite-based recipient creation requires a start date.");
+            }
+        }
         const employee = {
             id: employeeId,
             companyId: this.getCompany().id,
@@ -331,7 +393,7 @@ class PayrollService {
             destinationChainId: input.destinationChainId ?? (0, payroll_1.chainIdFromPreference)(input.chainPreference ?? "Arc", this.config.arcChainId),
             destinationWalletAddress: input.destinationWalletAddress ?? (normalizedWalletAddress.startsWith("0x") ? normalizedWalletAddress : null),
             scheduleId: input.scheduleId ?? this.repository.listSchedules()[0]?.id ?? null,
-            timeTrackingMode: input.timeTrackingMode,
+            timeTrackingMode: input.timeTrackingMode ?? this.getCompany().defaultTimeTrackingMode,
             employmentStartDate: input.employmentStartDate ?? currentPeriod.periodStart,
             onboardingStatus: normalizedWalletAddress.startsWith("0x") ? "claimed" : "unclaimed",
             onboardingMethod: normalizedWalletAddress.startsWith("0x") ? "existing_wallet" : null,
@@ -344,6 +406,7 @@ class PayrollService {
         return toRecipientResponse(employee);
     }
     updateRecipient(id, input) {
+        const current = requireRecord(this.repository.getEmployee(id), "Recipient not found.");
         const patch = {};
         if (input.walletAddress !== undefined) {
             if (input.walletAddress?.trim()) {
@@ -360,8 +423,17 @@ class PayrollService {
             patch.payType = input.payType;
         if (input.rate !== undefined)
             patch.rateCents = (0, payroll_1.centsFromDollars)(input.rate);
-        if (input.chainPreference !== undefined)
+        if (input.chainPreference !== undefined) {
             patch.chainPreference = input.chainPreference;
+            if (input.destinationChainId === undefined) {
+                patch.destinationChainId = (0, payroll_1.chainIdFromPreference)(input.chainPreference, this.config.arcChainId);
+            }
+            if (input.destinationWalletAddress === undefined) {
+                patch.destinationWalletAddress =
+                    current.destinationWalletAddress ??
+                        publicWalletAddress(input.walletAddress?.trim() ? input.walletAddress.toLowerCase() : current.walletAddress);
+            }
+        }
         if (input.destinationChainId !== undefined)
             patch.destinationChainId = input.destinationChainId;
         if (input.destinationWalletAddress !== undefined)
@@ -378,10 +450,8 @@ class PayrollService {
         return toRecipientResponse(updated);
     }
     deleteRecipient(id) {
-        const employee = requireRecord(this.repository.getEmployee(id), "Recipient not found.");
-        this.repository.deactivateEmployee(id);
-        this.repository.deleteSessionsByAddress(employee.walletAddress);
-        this.repository.invalidateActiveInviteCodes(id, (0, dates_1.nowIso)());
+        requireRecord(this.repository.getEmployee(id), "Recipient not found.");
+        this.repository.deleteEmployeeCascade(id);
         return { ok: true };
     }
     listSchedules() {
@@ -556,11 +626,17 @@ class PayrollService {
             throw new Error("Employee is already clocked in.");
         }
         const timeEntries = this.repository.listTimeEntries(employee.id, date, date);
+        const clockIn = input?.clockIn ?? (0, payroll_1.suggestClockInTime)(employee.id, date, timeEntries);
+        this.assertTimeEntryWindow({
+            date,
+            clockIn,
+            entries: timeEntries,
+        });
         const entry = {
             id: (0, ids_1.createId)("time"),
             employeeId: employee.id,
             date,
-            clockIn: input?.clockIn ?? (0, payroll_1.suggestClockInTime)(employee.id, date, timeEntries),
+            clockIn,
             clockOut: null,
             createdAt: `${date}T${(0, dates_1.isoClock)()}:00.000Z`,
         };
@@ -575,6 +651,13 @@ class PayrollService {
         const openEntry = requireRecord(this.repository.getOpenTimeEntry(employee.id), "No active time entry to close.");
         const entriesToday = this.repository.listTimeEntries(employee.id, openEntry.date, openEntry.date);
         const clockOut = input?.clockOut ?? (0, payroll_1.suggestClockOutTime)(employee.id, openEntry.date, entriesToday, openEntry.clockIn);
+        this.assertTimeEntryWindow({
+            date: openEntry.date,
+            clockIn: openEntry.clockIn,
+            clockOut,
+            entries: entriesToday,
+            excludeEntryId: openEntry.id,
+        });
         const updated = requireRecord(this.repository.closeTimeEntry(openEntry.id, clockOut), "Time entry not found.");
         return toTimeEntryResponse(updated);
     }
@@ -636,18 +719,29 @@ class PayrollService {
             throw new Error("Requested withdrawal exceeds the available earned balance.");
         }
         await this.ensureLiquidity(requestedAmountCents);
-        const txHash = await this.chainService.transferPayroll(normalizedAddress, requestedAmountCents);
+        const payoutDestination = this.resolvePayoutDestination(employee);
+        const payoutItem = await this.chainService.preparePayRunItem({
+            employeeId: employee.id,
+            recipientWalletAddress: payoutDestination.walletAddress,
+            destinationChainId: payoutDestination.destinationChainId,
+            amountCents: requestedAmountCents,
+            maxFeeBaseUnits: 0,
+            minFinalityThreshold: cctp_1.CCTP_SLOW_FINALITY_THRESHOLD,
+            useForwarder: false,
+            status: "ready",
+        });
+        const payout = await this.chainService.transferPayroll(payoutItem);
         const { periodStart, periodEnd } = (0, dates_1.currentSemimonthlyPeriod)(this.getReferenceDate());
         const withdrawal = {
             id: (0, ids_1.createId)("withdrawal"),
             employeeId: employee.id,
-            walletAddress: normalizedAddress,
+            walletAddress: payoutDestination.walletAddress,
             amountCents: requestedAmountCents,
-            txHash,
+            txHash: payout.txHash,
             periodStart,
             periodEnd,
             createdAt: (0, dates_1.nowIso)(),
-            status: "paid",
+            status: payout.status,
         };
         this.repository.createWithdrawal(withdrawal);
         if (this.config.chainMode !== "live") {
@@ -657,9 +751,12 @@ class PayrollService {
         }
         return {
             ok: true,
-            txHash,
+            txHash: payout.txHash,
             amount: (0, payroll_1.dollarsFromCents)(requestedAmountCents),
-            walletAddress: normalizedAddress,
+            walletAddress: payoutDestination.walletAddress,
+            chainPreference: payoutDestination.chainPreference,
+            destinationChainId: payoutDestination.destinationChainId,
+            status: payout.status,
         };
     }
     async buildPayRunItems(periodStart, periodEnd, employeeIds) {

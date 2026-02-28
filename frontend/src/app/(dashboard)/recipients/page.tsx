@@ -7,6 +7,8 @@ import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 import { publicConfig } from "@/lib/publicConfig";
 
+type CreationMode = "full" | "invite";
+
 type RecipientFormState = {
   walletAddress: string;
   name: string;
@@ -63,6 +65,7 @@ export default function RecipientsPage() {
   const { recipients, schedules, addRecipient, updateRecipient, deleteRecipient, createRecipientAccessCode, getRecipientMetrics, loading, error } = usePayroll();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [creationMode, setCreationMode] = useState<CreationMode>("full");
   const [message, setMessage] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -78,14 +81,16 @@ export default function RecipientsPage() {
   const resetForm = () => {
     setFormState(emptyRecipient);
     setEditingId(null);
+    setCreationMode("full");
     setShowForm(false);
   };
 
-  const openAddForm = () => {
+  const openAddForm = (mode: CreationMode) => {
     setMessage(null);
     setDeleteError(null);
     setGeneratedInvite(null);
     setEditingId(null);
+    setCreationMode(mode);
     setFormState(emptyRecipient);
     setShowForm(true);
   };
@@ -95,6 +100,7 @@ export default function RecipientsPage() {
     setDeleteError(null);
     setGeneratedInvite(null);
     setEditingId(recipient.id);
+    setCreationMode("full");
     setFormState({
       walletAddress: recipient.walletAddress ?? "",
       name: recipient.name,
@@ -113,15 +119,39 @@ export default function RecipientsPage() {
     setIsSaving(true);
     setDeleteError(null);
     try {
-      const payload = {
-        ...formState,
-        walletAddress: formState.walletAddress.trim() || null,
-        employmentStartDate: formState.employmentStartDate || null,
-      };
       if (editingId) {
+        const payload = {
+          ...formState,
+          walletAddress: formState.walletAddress.trim() || null,
+          employmentStartDate: formState.employmentStartDate || null,
+        };
         await updateRecipient(editingId, payload);
         setMessage("Recipient updated.");
+      } else if (creationMode === "invite") {
+        const created = await addRecipient({
+          name: formState.name.trim(),
+          payType: formState.payType,
+          rate: formState.rate,
+          scheduleId: formState.scheduleId ?? null,
+          timeTrackingMode: formState.timeTrackingMode,
+          employmentStartDate: formState.employmentStartDate || null,
+        });
+        const invite = await createRecipientAccessCode(created.id);
+        setGeneratedInvite({
+          code: invite.code,
+          name: created.name,
+          expiresAt: invite.invite.expiresAt,
+        });
+        setMessage("Access code generated.");
       } else {
+        if (!formState.walletAddress.trim()) {
+          throw new Error("Wallet address is required when the CEO creates the full recipient.");
+        }
+        const payload = {
+          ...formState,
+          walletAddress: formState.walletAddress.trim(),
+          employmentStartDate: formState.employmentStartDate || null,
+        };
         await addRecipient(payload);
         setMessage("Recipient added.");
       }
@@ -184,16 +214,25 @@ export default function RecipientsPage() {
             {recipients.length} active recipients across {new Set(recipients.map((recipient) => recipient.chainPreference).filter(Boolean)).size} chains
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openAddForm}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-        >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-          </svg>
-          Add Recipient
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => openAddForm("full")}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+            Add Full Recipient
+          </button>
+          <button
+            type="button"
+            onClick={() => openAddForm("invite")}
+            className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-800 shadow-sm transition-colors hover:bg-emerald-100"
+          >
+            Generate Access Code
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -234,10 +273,14 @@ export default function RecipientsPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">
-                {editingId ? "Edit Recipient" : "Add New Recipient"}
+                {editingId ? "Edit Recipient" : creationMode === "invite" ? "Generate Invite-Based Recipient" : "Add Full Recipient"}
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Capture payroll type, preferred chain, and tracking mode. Leave wallet blank to require invite-based onboarding.
+                {editingId
+                  ? "Update the live employee record."
+                  : creationMode === "invite"
+                    ? "The CEO presets name, pay, schedule, tracking mode, and start date. The employee only completes payout setup during onboarding."
+                    : "Create the full employee record now. This path skips onboarding choices for the employee."}
               </p>
             </div>
             <button
@@ -257,13 +300,6 @@ export default function RecipientsPage() {
               placeholder="Full name"
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
-            <input
-              type="text"
-              value={formState.walletAddress}
-              onChange={(event) => setFormState({ ...formState, walletAddress: event.target.value })}
-              placeholder="Wallet address (optional)"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
             <select
               value={formState.payType}
               onChange={(event) => setFormState({ ...formState, payType: event.target.value as PayType })}
@@ -281,16 +317,27 @@ export default function RecipientsPage() {
               placeholder="Rate"
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
-            <select
-              value={formState.chainPreference ?? "Arc"}
-              onChange={(event) => setFormState({ ...formState, chainPreference: event.target.value })}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="Arc">Arc</option>
-              <option value="Ethereum">Ethereum</option>
-              <option value="Base">Base</option>
-              <option value="Arbitrum">Arbitrum</option>
-            </select>
+            {(editingId || creationMode === "full") && (
+              <input
+                type="text"
+                value={formState.walletAddress}
+                onChange={(event) => setFormState({ ...formState, walletAddress: event.target.value })}
+                placeholder="Wallet address"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            )}
+            {(editingId || creationMode === "full") && (
+              <select
+                value={formState.chainPreference ?? "Arc"}
+                onChange={(event) => setFormState({ ...formState, chainPreference: event.target.value })}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="Arc">Arc</option>
+                <option value="Ethereum">Ethereum</option>
+                <option value="Base">Base</option>
+                <option value="Arbitrum">Arbitrum</option>
+              </select>
+            )}
             <select
               value={formState.timeTrackingMode}
               onChange={(event) => setFormState({ ...formState, timeTrackingMode: event.target.value as TimeTrackingMode })}
@@ -318,9 +365,16 @@ export default function RecipientsPage() {
             />
           </div>
 
-          <p className="mt-3 text-xs text-slate-500">
-            Worked since controls how far back the employee accrues earnings for testing and live withdrawals.
-          </p>
+          {(editingId || creationMode === "full") && (
+            <p className="mt-3 text-xs text-slate-500">
+              Worked since controls how far back the employee accrues earnings for testing and live withdrawals.
+            </p>
+          )}
+          {!editingId && creationMode === "invite" && (
+            <p className="mt-3 text-xs text-slate-500">
+              The generated code will lock in the employee name, pay, schedule, tracking mode, and start date. During onboarding, the employee will only choose wallet/Circle and payout destination.
+            </p>
+          )}
 
           <div className="mt-4 flex gap-2">
             <button
@@ -329,7 +383,7 @@ export default function RecipientsPage() {
               disabled={isSaving}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
-              {isSaving ? "Saving…" : editingId ? "Save Changes" : "Save Recipient"}
+              {isSaving ? "Saving…" : editingId ? "Save Changes" : creationMode === "invite" ? "Create Code" : "Save Recipient"}
             </button>
           </div>
         </Card>

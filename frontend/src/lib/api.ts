@@ -82,20 +82,49 @@ export interface OnboardingRedeemResponse {
   };
 }
 
+export interface CircleGoogleDeviceTokenResponse {
+  circle: {
+    appId: string;
+    deviceToken: string;
+    deviceEncryptionKey: string;
+  };
+}
+
 export interface CircleOnboardingStartResponse {
   employee: Recipient;
   circle: {
     appId: string;
-    userToken: string;
-    encryptionKey: string;
+    deviceToken: string;
+    deviceEncryptionKey: string;
+  };
+}
+
+export interface CircleOnboardingPrepareResponse {
+  employee: Recipient;
+  circle: {
     challengeId: string | null;
     walletAddress: string | null;
   };
 }
 
+export interface OnboardingProfilePayload {
+  chainPreference?: string | null;
+}
+
 export interface MeResponse {
   role: Role;
   employee: Recipient | null;
+}
+
+export interface CircleWalletTransferResponse {
+  walletAddress: string;
+  walletId: string;
+  challengeId: string;
+  blockchain: string;
+  tokenAddress: string;
+  symbol: string;
+  destinationAddress: string;
+  amount: number;
 }
 
 export interface EarningsResponse {
@@ -178,6 +207,9 @@ export interface WithdrawResponse {
   txHash: string;
   amount: number;
   walletAddress: string;
+  chainPreference: string;
+  destinationChainId: number;
+  status: "paid" | "processing";
 }
 
 export interface TimeOffSummaryResponse {
@@ -199,7 +231,7 @@ export type RecipientPayload = {
   destinationChainId?: number | null;
   destinationWalletAddress?: string | null;
   scheduleId?: string | null;
-  timeTrackingMode: Recipient["timeTrackingMode"];
+  timeTrackingMode?: Recipient["timeTrackingMode"];
   employmentStartDate?: string | null;
   active?: boolean;
 };
@@ -217,7 +249,26 @@ export const api = {
       method: "POST",
       body: input,
     }),
+  createCircleGoogleDeviceToken: (payload: { deviceId: string }) =>
+    request<CircleGoogleDeviceTokenResponse>("/auth/circle/google/device-token", {
+      method: "POST",
+      body: payload,
+    }),
+  verifyCircleGoogle: (payload: { userToken: string }) =>
+    request<AuthVerifyResponse>("/auth/circle/google/verify", {
+      method: "POST",
+      body: payload,
+    }),
   getMe: (token: string) => request<MeResponse>("/me", { token }),
+  createCircleWalletTransfer: (
+    token: string,
+    payload: { userToken: string; destinationAddress: string; amount: string },
+  ) =>
+    request<CircleWalletTransferResponse>("/me/circle/wallet/transfer", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
   getDashboard: () => request<DashboardSummaryResponse>("/dashboard"),
   getRecipients: (token: string) => request<Recipient[]>("/recipients", { token }),
   createRecipient: (token: string, payload: RecipientPayload) =>
@@ -253,17 +304,22 @@ export const api = {
       method: "POST",
       body: payload,
     }),
-  claimOnboardingWallet: (payload: { code: string; address: string; message: string; signature: `0x${string}` }) =>
+  claimOnboardingWallet: (payload: { code: string; address: string; message: string; signature: `0x${string}`; profile?: OnboardingProfilePayload }) =>
     request<AuthVerifyResponse>("/onboarding/wallet/claim", {
       method: "POST",
       body: payload,
     }),
-  startCircleOnboarding: (code: string) =>
+  startCircleOnboarding: (payload: { code: string; deviceId: string; profile?: OnboardingProfilePayload }) =>
     request<CircleOnboardingStartResponse>("/onboarding/circle/start", {
       method: "POST",
-      body: { code },
+      body: payload,
     }),
-  completeCircleOnboarding: (payload: { code: string; userToken: string }) =>
+  prepareCircleOnboarding: (payload: { code: string; userToken: string; profile?: OnboardingProfilePayload }) =>
+    request<CircleOnboardingPrepareResponse>("/onboarding/circle/prepare", {
+      method: "POST",
+      body: payload,
+    }),
+  completeCircleOnboarding: (payload: { code: string; userToken: string; profile?: OnboardingProfilePayload }) =>
     request<AuthVerifyResponse>("/onboarding/circle/complete", {
       method: "POST",
       body: payload,

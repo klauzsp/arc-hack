@@ -1,8 +1,10 @@
 "use client";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import Link from "next/link";
 import { useState } from "react";
 import { ARC_TESTNET_CHAIN_ID } from "@/lib/contracts";
+import { publicConfig } from "@/lib/publicConfig";
 import { useAuthSession } from "./AuthProvider";
 
 function shortAddress(address: string) {
@@ -13,6 +15,7 @@ export function WalletButton() {
   const [walletError, setWalletError] = useState<string | null>(null);
   const { token, role, sessionKind, signIn, signOut, isAuthenticating, error } = useAuthSession();
   const displayError = walletError ?? error;
+  const circleGoogleEnabled = Boolean(publicConfig.circleAppId && publicConfig.circleGoogleClientId);
 
   return (
     <ConnectButton.Custom>
@@ -55,19 +58,29 @@ export function WalletButton() {
                 </button>
               </>
             ) : !connected ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setWalletError(null);
-                  openConnectModal();
-                }}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a5 5 0 00-10 0v2m-2 4h14l-1 7H6l-1-7z" />
-                </svg>
-                Connect Wallet
-              </button>
+              <>
+                {circleGoogleEnabled ? (
+                  <Link
+                    href="/circle-login"
+                    className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-800"
+                  >
+                    Circle Google Sign-In
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWalletError(null);
+                    openConnectModal();
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a5 5 0 00-10 0v2m-2 4h14l-1 7H6l-1-7z" />
+                  </svg>
+                  Connect EVM Wallet
+                </button>
+              </>
             ) : wrongChain ? (
               <button
                 type="button"

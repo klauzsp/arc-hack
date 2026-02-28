@@ -15,6 +15,7 @@ const routeTitles: Record<string, string> = {
   "/policies": "Policies",
   "/my-earnings": "My Earnings",
   "/my-time": "My Time",
+  "/manage-wallet": "Manage Wallet",
 };
 
 function getTitle(pathname: string): string {

@@ -66,6 +66,14 @@ class AuthService {
         this.repository.createSession(session);
         return session;
     }
+    createEmployeeSessionResponse(employee, nowIso) {
+        const session = this.createSession(employee.walletAddress.toLowerCase(), "employee", employee.id, nowIso);
+        return {
+            token: session.token,
+            role: "employee",
+            employee: toEmployeeResponse(employee),
+        };
+    }
     async issueChallenge(address, nowIso) {
         const normalizedAddress = address.toLowerCase();
         const nonce = (0, ids_1.createToken)(12);
@@ -137,6 +145,15 @@ class AuthService {
             throw new Error("This employee has already completed onboarding.");
         }
         return { invite, employee };
+    }
+    applyOnboardingProfile(employee, profile, method) {
+        const chainPreference = method === "circle"
+            ? "Arc"
+            : profile?.chainPreference?.trim() || employee.chainPreference || "Arc";
+        return {
+            chainPreference,
+            destinationChainId: (0, payroll_1.chainIdFromPreference)(chainPreference, this.config.arcChainId),
+        };
     }
     createRecipientAccessCode(employeeId, createdBy, nowIso) {
         const employee = this.repository.getEmployee(employeeId);
@@ -235,42 +252,55 @@ class AuthService {
         if (existing && existing.id !== employee.id) {
             throw new Error("That wallet is already assigned to another employee.");
         }
+        const profilePatch = this.applyOnboardingProfile(employee, input.profile, "existing_wallet");
         const updated = this.repository.updateEmployee(employee.id, {
             walletAddress: normalizedAddress,
-            destinationWalletAddress: employee.destinationWalletAddress ?? normalizedAddress,
-            destinationChainId: employee.destinationChainId ??
-                (0, payroll_1.chainIdFromPreference)(employee.chainPreference ?? "Arc", this.config.arcChainId),
+            destinationWalletAddress: normalizedAddress,
+            ...profilePatch,
             onboardingStatus: "claimed",
             onboardingMethod: "existing_wallet",
             claimedAt: input.nowIso,
         });
         this.repository.useEmployeeInviteCode(invite.id, input.nowIso);
         this.repository.deleteChallenge(normalizedAddress);
-        const session = this.createSession(normalizedAddress, "employee", employee.id, input.nowIso);
-        return {
-            token: session.token,
-            role: "employee",
-            employee: toEmployeeResponse(updated ?? employee),
-        };
+        return this.createEmployeeSessionResponse(updated ?? employee, input.nowIso);
     }
-    async startCircleOnboarding(code, nowIso) {
-        const { employee } = this.getValidInvite(code, nowIso);
+    async issueCircleGoogleDeviceToken(deviceId) {
         if (!this.circleWalletService.isConfigured()) {
             throw new Error("Circle user-controlled wallet onboarding is not configured.");
         }
-        const tokenData = await this.circleWalletService.createUserToken(employee.id);
-        if (employee.circleUserId !== tokenData.userId) {
-            this.repository.updateEmployee(employee.id, {
-                circleUserId: tokenData.userId,
-            });
-        }
-        const provisioning = await this.circleWalletService.startArcWalletProvisioning(employee.id, tokenData.userToken);
         return {
-            employee: toEmployeeResponse(this.repository.getEmployee(employee.id) ?? employee),
+            circle: await this.circleWalletService.createSocialDeviceToken(deviceId),
+        };
+    }
+    async startCircleOnboarding(input) {
+        const { employee } = this.getValidInvite(input.code, input.nowIso);
+        if (!this.circleWalletService.isConfigured()) {
+            throw new Error("Circle user-controlled wallet onboarding is not configured.");
+        }
+        const profilePatch = this.applyOnboardingProfile(employee, input.profile, "circle");
+        const updated = this.repository.updateEmployee(employee.id, profilePatch) ?? employee;
+        const tokenData = await this.circleWalletService.createSocialDeviceToken(input.deviceId);
+        return {
+            employee: toEmployeeResponse(updated),
             circle: {
                 appId: tokenData.appId,
-                userToken: tokenData.userToken,
-                encryptionKey: tokenData.encryptionKey,
+                deviceToken: tokenData.deviceToken,
+                deviceEncryptionKey: tokenData.deviceEncryptionKey,
+            },
+        };
+    }
+    async prepareCircleOnboarding(input) {
+        const { employee } = this.getValidInvite(input.code, input.nowIso);
+        if (!this.circleWalletService.isConfigured()) {
+            throw new Error("Circle user-controlled wallet onboarding is not configured.");
+        }
+        const profilePatch = this.applyOnboardingProfile(employee, input.profile, "circle");
+        const updated = this.repository.updateEmployee(employee.id, profilePatch) ?? employee;
+        const provisioning = await this.circleWalletService.startArcWalletProvisioning(employee.id, input.userToken);
+        return {
+            employee: toEmployeeResponse(updated),
+            circle: {
                 challengeId: provisioning.challengeId,
                 walletAddress: provisioning.wallet?.address?.toLowerCase() ?? null,
             },
@@ -290,23 +320,40 @@ class AuthService {
         if (existing && existing.id !== employee.id) {
             throw new Error("That Circle wallet is already assigned to another employee.");
         }
+        const profilePatch = this.applyOnboardingProfile(employee, input.profile, "circle");
         const updated = this.repository.updateEmployee(employee.id, {
             walletAddress,
             destinationWalletAddress: walletAddress,
-            chainPreference: "Arc",
-            destinationChainId: (0, payroll_1.chainIdFromPreference)("Arc", this.config.arcChainId),
+            ...profilePatch,
             onboardingStatus: "claimed",
             onboardingMethod: "circle",
             claimedAt: input.nowIso,
             circleWalletId: wallet?.id ?? employee.circleWalletId,
         });
         this.repository.useEmployeeInviteCode(invite.id, input.nowIso);
-        const session = this.createSession(walletAddress, "employee", employee.id, input.nowIso);
-        return {
-            token: session.token,
-            role: "employee",
-            employee: toEmployeeResponse(updated ?? employee),
-        };
+        return this.createEmployeeSessionResponse(updated ?? employee, input.nowIso);
+    }
+    async verifyCircleEmployeeLogin(input) {
+        if (!this.circleWalletService.isConfigured()) {
+            throw new Error("Circle user-controlled wallet onboarding is not configured.");
+        }
+        const wallet = await this.circleWalletService.getArcWallet(input.userToken);
+        const walletAddress = wallet?.address?.toLowerCase();
+        if (!walletAddress || !(0, viem_1.isAddress)(walletAddress)) {
+            throw new Error("No Arc wallet is available yet for this Circle user.");
+        }
+        const employee = this.repository.getEmployeeByWallet(walletAddress);
+        if (!employee || !employee.active || employee.onboardingStatus !== "claimed") {
+            throw new Error("No active employee is assigned to this Circle wallet.");
+        }
+        if (employee.onboardingMethod !== "circle") {
+            throw new Error("This employee must sign in with their assigned external wallet instead.");
+        }
+        const walletId = wallet?.id ?? null;
+        const updated = walletId && walletId !== employee.circleWalletId
+            ? (this.repository.updateEmployee(employee.id, { circleWalletId: walletId }) ?? employee)
+            : employee;
+        return this.createEmployeeSessionResponse(updated, input.nowIso);
     }
     getSession(token, nowIso) {
         this.repository.purgeExpiredSessions(nowIso);

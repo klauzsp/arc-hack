@@ -19,13 +19,18 @@ class CircleWalletService {
         }
         return this.config.circle;
     }
+    getUsdcTokenAddress() {
+        return (this.config.liveChain?.usdcAddress ?? "0x3600000000000000000000000000000000000000").toLowerCase();
+    }
     async circleFetch(path, init, options) {
         const circle = this.requireConfig();
+        const requestId = (0, node_crypto_1.randomUUID)();
         const response = await fetch(`${circle.apiBaseUrl}${path}`, {
             ...init,
             headers: {
                 Authorization: `Bearer ${circle.apiKey}`,
                 "Content-Type": "application/json",
+                "X-Request-Id": requestId,
                 ...(options?.userToken ? { "X-User-Token": options.userToken } : {}),
                 ...(init.headers ?? {}),
             },
@@ -77,6 +82,25 @@ class CircleWalletService {
             appId: this.requireConfig().appId,
         };
     }
+    async createSocialDeviceToken(deviceId) {
+        const token = await this.circleFetch("/v1/w3s/users/social/token", {
+            method: "POST",
+            body: JSON.stringify({
+                idempotencyKey: (0, node_crypto_1.randomUUID)(),
+                deviceId,
+            }),
+        });
+        const deviceToken = token.deviceToken ?? token.userToken;
+        const deviceEncryptionKey = token.deviceEncryptionKey ?? token.encryptionKey;
+        if (!deviceToken || !deviceEncryptionKey) {
+            throw new Error("Circle did not return a usable social login device token.");
+        }
+        return {
+            deviceToken,
+            deviceEncryptionKey,
+            appId: this.requireConfig().appId,
+        };
+    }
     async listWallets(userToken) {
         const data = await this.circleFetch("/v1/w3s/wallets", {
             method: "GET",
@@ -98,7 +122,7 @@ class CircleWalletService {
                 idempotencyKey: (0, node_crypto_1.randomUUID)(),
                 accountType: circle.accountType,
                 blockchains: [circle.walletBlockchain],
-                metadata: [{ name: "employeeId", value: employeeId }],
+                metadata: [{ name: "employeeId", refId: employeeId }],
             }),
         }, { userToken });
         return {
@@ -110,6 +134,31 @@ class CircleWalletService {
         const circle = this.requireConfig();
         const wallets = await this.listWallets(userToken);
         return wallets.find((wallet) => wallet.blockchain === circle.walletBlockchain && wallet.address) ?? null;
+    }
+    async createTransferChallenge(input) {
+        const circle = this.requireConfig();
+        const result = await this.circleFetch("/v1/w3s/user/transactions/transfer", {
+            method: "POST",
+            body: JSON.stringify({
+                idempotencyKey: (0, node_crypto_1.randomUUID)(),
+                walletId: input.walletId,
+                destinationAddress: input.destinationAddress,
+                amounts: [input.amount],
+                blockchain: circle.walletBlockchain,
+                tokenAddress: this.getUsdcTokenAddress(),
+                feeLevel: "MEDIUM",
+                ...(input.refId ? { refId: input.refId } : {}),
+            }),
+        }, { userToken: input.userToken });
+        if (!result.challengeId) {
+            throw new Error("Circle did not return a transfer challenge.");
+        }
+        return {
+            challengeId: result.challengeId,
+            blockchain: circle.walletBlockchain,
+            tokenAddress: this.getUsdcTokenAddress(),
+            symbol: "USDC",
+        };
     }
 }
 exports.CircleWalletService = CircleWalletService;

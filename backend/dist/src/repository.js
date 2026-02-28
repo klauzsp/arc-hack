@@ -618,8 +618,23 @@ class PayrollRepository {
             .run(next.companyId, next.walletAddress, next.name, next.role, next.payType, next.rateCents, next.chainPreference, next.destinationChainId, next.destinationWalletAddress, next.scheduleId, next.timeTrackingMode, next.employmentStartDate, next.onboardingStatus, next.onboardingMethod, next.claimedAt, next.circleUserId, next.circleWalletId, Number(next.active), id);
         return next;
     }
-    deactivateEmployee(id) {
-        this.db.prepare("UPDATE employees SET active = 0 WHERE id = ?").run(id);
+    deleteEmployeeCascade(id) {
+        this.transaction(() => {
+            const row = this.db
+                .prepare("SELECT wallet_address FROM employees WHERE id = ?")
+                .get(id);
+            if (!row)
+                return;
+            const walletAddress = String(row.wallet_address);
+            this.db.prepare("DELETE FROM sessions WHERE employee_id = ?").run(id);
+            this.db.prepare("DELETE FROM sessions WHERE address = ?").run(walletAddress.toLowerCase());
+            this.db.prepare("DELETE FROM auth_challenges WHERE address = ?").run(walletAddress.toLowerCase());
+            this.db.prepare("DELETE FROM employee_invite_codes WHERE employee_id = ?").run(id);
+            this.db.prepare("DELETE FROM time_entries WHERE employee_id = ?").run(id);
+            this.db.prepare("DELETE FROM time_off_requests WHERE employee_id = ?").run(id);
+            this.db.prepare("DELETE FROM withdrawals WHERE employee_id = ?").run(id);
+            this.db.prepare("DELETE FROM employees WHERE id = ?").run(id);
+        });
     }
     deleteSessionsByAddress(address) {
         this.db.prepare("DELETE FROM sessions WHERE address = ?").run(address.toLowerCase());

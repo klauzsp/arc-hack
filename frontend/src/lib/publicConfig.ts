@@ -26,6 +26,7 @@ const arcVestingAddress = readEnv(process.env.NEXT_PUBLIC_ARC_VESTING_ADDRESS);
 const arcUsycAddress = readEnv(process.env.NEXT_PUBLIC_ARC_USYC_ADDRESS);
 const arcUsycTellerAddress = readEnv(process.env.NEXT_PUBLIC_ARC_USYC_TELLER_ADDRESS);
 const circleAppId = readEnv(process.env.NEXT_PUBLIC_CIRCLE_APP_ID);
+const circleGoogleClientId = readEnv(process.env.NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID);
 
 export const publicConfig = {
   apiUrl: apiUrl ?? DEFAULT_API_URL,
@@ -52,6 +53,8 @@ export const publicConfig = {
   arcUsycTellerAddressSource: arcUsycTellerAddress ? "env" : "default",
   circleAppId: circleAppId ?? null,
   circleAppIdSource: circleAppId ? "env" : "missing",
+  circleGoogleClientId: circleGoogleClientId ?? null,
+  circleGoogleClientIdSource: circleGoogleClientId ? "env" : "missing",
 } as const;
 
 export function maskValue(value: string | null, visible = 6) {

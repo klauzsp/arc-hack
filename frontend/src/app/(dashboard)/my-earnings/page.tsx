@@ -92,7 +92,11 @@ export default function MyEarningsPage() {
     setIsWithdrawing(true);
     try {
       const response = await withdrawNow();
-      setWithdrawMessage(`Treasury paid ${formatCurrency(response.amount)} to your connected wallet.`);
+      setWithdrawMessage(
+        response.status === "processing"
+          ? `Treasury routed ${formatCurrency(response.amount)} to ${response.chainPreference}. CCTP delivery is in progress for ${response.walletAddress}.`
+          : `Treasury paid ${formatCurrency(response.amount)} on ${response.chainPreference} to ${response.walletAddress}.`,
+      );
     } catch (withdrawActionError) {
       setWithdrawError(withdrawActionError instanceof Error ? withdrawActionError.message : "Withdrawal failed.");
     } finally {

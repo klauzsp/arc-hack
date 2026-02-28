@@ -7,6 +7,7 @@ export interface LiveChainConfig {
   privateKey: `0x${string}`;
   coreAddress: `0x${string}`;
   payRunAddress: `0x${string}`;
+  cctpBridgeAddress?: `0x${string}`;
   rebalanceAddress: `0x${string}`;
   usdcAddress: `0x${string}`;
   usycAddress: `0x${string}`;
@@ -25,7 +26,7 @@ export interface CircleConfig {
 export interface AppConfig {
   host: string;
   port: number;
-  corsOrigin: string;
+  corsOrigins: string[];
   dbPath: string;
   sessionTtlHours: number;
   companyId: string;
@@ -51,6 +52,17 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
   return value === "1" || value.toLowerCase() === "true";
 }
 
+function parseCorsOrigins(value: string | undefined) {
+  if (!value?.trim()) {
+    return ["http://localhost:3000", "http://127.0.0.1:3000"];
+  }
+
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 function workspaceRoot() {
   return path.basename(process.cwd()) === "backend" ? path.resolve(process.cwd(), "..") : process.cwd();
 }
@@ -74,7 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const config: AppConfig = {
     host: env.BACKEND_HOST ?? "127.0.0.1",
     port: parseNumber(env.BACKEND_PORT, 3001),
-    corsOrigin: env.BACKEND_CORS_ORIGIN ?? "http://localhost:3000",
+    corsOrigins: parseCorsOrigins(env.BACKEND_CORS_ORIGIN),
     dbPath,
     sessionTtlHours: parseNumber(env.BACKEND_SESSION_TTL_HOURS, 24),
     companyId: env.BACKEND_COMPANY_ID ?? "company-arc",
@@ -93,6 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const privateKey = env.BACKEND_PRIVATE_KEY as `0x${string}` | undefined;
     const coreAddress = env.BACKEND_CORE_ADDRESS as `0x${string}` | undefined;
     const payRunAddress = env.BACKEND_PAYRUN_ADDRESS as `0x${string}` | undefined;
+    const cctpBridgeAddress = env.BACKEND_CCTP_BRIDGE_ADDRESS as `0x${string}` | undefined;
     const rebalanceAddress = env.BACKEND_REBALANCE_ADDRESS as `0x${string}` | undefined;
     const usdcAddress = (env.BACKEND_USDC_ADDRESS ??
       "0x3600000000000000000000000000000000000000") as `0x${string}`;
@@ -111,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       privateKey,
       coreAddress,
       payRunAddress,
+      cctpBridgeAddress,
       rebalanceAddress,
       usdcAddress,
       usycAddress,

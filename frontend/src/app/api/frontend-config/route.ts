@@ -28,6 +28,10 @@ export async function GET() {
     arcUsycAddressSource: publicConfig.arcUsycAddressSource,
     arcUsycTellerAddress: publicConfig.arcUsycTellerAddress,
     arcUsycTellerAddressSource: publicConfig.arcUsycTellerAddressSource,
+    circleAppIdConfigured: Boolean(publicConfig.circleAppId),
+    circleAppIdSource: publicConfig.circleAppIdSource,
+    circleGoogleClientIdConfigured: Boolean(publicConfig.circleGoogleClientId),
+    circleGoogleClientIdSource: publicConfig.circleGoogleClientIdSource,
     note: "Restart the Next.js dev server after editing frontend/.env.local so public env values are rebuilt into the client bundle.",
   });
 }

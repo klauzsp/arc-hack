@@ -29,6 +29,9 @@ class ChainService {
         "function finalizePayRun(bytes32 payRunId)",
         "function markFailed(bytes32 payRunId)",
     ]);
+    cctpBridgeAbi = (0, viem_1.parseAbi)([
+        "function bridgePayroll(address recipient, uint256 amount, uint32 destinationDomain, uint256 maxFee, uint32 minFinalityThreshold, bool useForwarder)",
+    ]);
     tokenMessengerEventAbi = (0, viem_1.parseAbi)([
         "event DepositForBurn(uint64 indexed nonce, address indexed burnToken, uint256 amount, address indexed depositor, bytes32 mintRecipient, uint32 destinationDomain, bytes32 destinationTokenMessenger, bytes32 destinationCaller, uint256 maxFee, uint256 minFinalityThreshold, bytes hookData)",
     ]);
@@ -403,20 +406,51 @@ class ChainService {
             decodedBody.mintRecipient?.toLowerCase() === item.recipientWalletAddress.toLowerCase() &&
             String(decodedBody.amount ?? "") === toUsdcBaseUnits(item.amountCents).toString());
     }
-    async transferPayroll(recipient, amountCents) {
+    async transferPayroll(item) {
         if (this.config.chainMode !== "live") {
-            return createMockHash(`withdraw-${recipient}-${amountCents}`);
+            return {
+                txHash: createMockHash(`withdraw-${item.recipientWalletAddress}-${item.amountCents}-${item.destinationChainId}`),
+                status: (0, cctp_1.isArcDomain)(item.destinationChainId) ? "paid" : "processing",
+            };
         }
         const { walletClient, publicClient, liveChain } = this.requireLiveClients();
-        const txHash = await walletClient.writeContract({
+        let txHash;
+        if ((0, cctp_1.isArcDomain)(item.destinationChainId)) {
+            txHash = await walletClient.writeContract({
+                chain: undefined,
+                address: liveChain.coreAddress,
+                abi: this.coreAbi,
+                functionName: "transferPayroll",
+                args: [item.recipientWalletAddress, toUsdcBaseUnits(item.amountCents)],
+            });
+            await publicClient.waitForTransactionReceipt({ hash: txHash });
+            return {
+                txHash,
+                status: "paid",
+            };
+        }
+        if (!liveChain.cctpBridgeAddress) {
+            throw new Error("BACKEND_CCTP_BRIDGE_ADDRESS is required for cross-chain payroll withdrawals.");
+        }
+        txHash = await walletClient.writeContract({
             chain: undefined,
-            address: liveChain.coreAddress,
-            abi: this.coreAbi,
-            functionName: "transferPayroll",
-            args: [recipient, toUsdcBaseUnits(amountCents)],
+            address: liveChain.cctpBridgeAddress,
+            abi: this.cctpBridgeAbi,
+            functionName: "bridgePayroll",
+            args: [
+                item.recipientWalletAddress,
+                toUsdcBaseUnits(item.amountCents),
+                item.destinationChainId,
+                BigInt(item.maxFeeBaseUnits),
+                item.minFinalityThreshold,
+                item.useForwarder,
+            ],
         });
         await publicClient.waitForTransactionReceipt({ hash: txHash });
-        return txHash;
+        return {
+            txHash,
+            status: "processing",
+        };
     }
     async rebalanceUsdcToUsyc(amountCents) {
         if (this.config.chainMode !== "live") {

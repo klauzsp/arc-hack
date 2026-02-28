@@ -7,8 +7,13 @@ import type { Recipient } from "@/lib/types";
 import type { Role } from "@/lib/role";
 
 const STORAGE_KEY = "arc-payroll-session";
+const CIRCLE_STORAGE_KEY = "arc-payroll-circle-session";
 
 export type SessionKind = "wallet" | "employee";
+export type CircleAuthSession = {
+  userToken: string;
+  encryptionKey: string;
+};
 
 type StoredSession = {
   token: string;
@@ -21,11 +26,17 @@ type AuthContextValue = {
   role: Role;
   employee: Recipient | null;
   sessionKind: SessionKind | null;
+  circleAuth: CircleAuthSession | null;
   isLoading: boolean;
   isAuthenticating: boolean;
   error: string | null;
   signIn: () => Promise<void>;
-  completeSession: (session: AuthVerifyResponse, kind: SessionKind, address?: string | null) => void;
+  completeSession: (
+    session: AuthVerifyResponse,
+    kind: SessionKind,
+    address?: string | null,
+    circleAuth?: CircleAuthSession | null,
+  ) => void;
   signOut: () => void;
   refresh: () => Promise<void>;
 };
@@ -53,6 +64,27 @@ function storeSession(value: StoredSession | null) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
 }
 
+function readCircleAuth(): CircleAuthSession | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.sessionStorage.getItem(CIRCLE_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as CircleAuthSession;
+  } catch {
+    window.sessionStorage.removeItem(CIRCLE_STORAGE_KEY);
+    return null;
+  }
+}
+
+function storeCircleAuth(value: CircleAuthSession | null) {
+  if (typeof window === "undefined") return;
+  if (!value) {
+    window.sessionStorage.removeItem(CIRCLE_STORAGE_KEY);
+    return;
+  }
+  window.sessionStorage.setItem(CIRCLE_STORAGE_KEY, JSON.stringify(value));
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
@@ -60,6 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<Role>(null);
   const [employee, setEmployee] = useState<Recipient | null>(null);
   const [sessionKind, setSessionKind] = useState<SessionKind | null>(null);
+  const [circleAuth, setCircleAuth] = useState<CircleAuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +103,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRole(null);
     setEmployee(null);
     setSessionKind(null);
+    setCircleAuth(null);
     storeSession(null);
+    storeCircleAuth(null);
   };
 
   const acceptSession = (
@@ -79,11 +114,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     nextEmployee: Recipient | null,
     kind: SessionKind,
     nextAddress?: string | null,
+    nextCircleAuth?: CircleAuthSession | null,
   ) => {
     setToken(nextToken);
     setRole(nextRole);
     setEmployee(nextEmployee);
     setSessionKind(kind);
+    const shouldKeepCircleAuth =
+      kind === "employee" && nextEmployee?.onboardingMethod === "circle";
+    const resolvedCircleAuth = shouldKeepCircleAuth
+      ? (nextCircleAuth ?? readCircleAuth())
+      : null;
+    setCircleAuth(resolvedCircleAuth);
+    storeCircleAuth(resolvedCircleAuth);
     storeSession({
       token: nextToken,
       address: nextAddress?.toLowerCase() ?? null,
@@ -94,12 +137,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const completeSession = (session: AuthVerifyResponse, kind: SessionKind, nextAddress?: string | null) => {
+  const completeSession = (
+    session: AuthVerifyResponse,
+    kind: SessionKind,
+    nextAddress?: string | null,
+    nextCircleAuth?: CircleAuthSession | null,
+  ) => {
     if (!session.token || !session.role) {
       clearSession();
       throw new Error("This session is not authorized for payroll access.");
     }
-    acceptSession(session.token, session.role, session.employee, kind, nextAddress ?? session.employee?.walletAddress ?? null);
+    acceptSession(
+      session.token,
+      session.role,
+      session.employee,
+      kind,
+      nextAddress ?? session.employee?.walletAddress ?? null,
+      nextCircleAuth,
+    );
     setError(null);
     setIsLoading(false);
   };
@@ -110,6 +165,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await api.getMe(token);
       setRole(me.role);
       setEmployee(me.employee);
+      if (me.role !== "employee" || me.employee?.onboardingMethod !== "circle") {
+        setCircleAuth(null);
+        storeCircleAuth(null);
+      }
       setError(null);
     } catch (fetchError) {
       clearSession();
@@ -180,10 +239,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     void api
       .getMe(stored.token)
-      .then((me) => {
-        acceptSession(stored.token, me.role, me.employee, "wallet", normalizedAddress);
-        setError(null);
-      })
+        .then((me) => {
+          acceptSession(stored.token, me.role, me.employee, "wallet", normalizedAddress);
+          setError(null);
+        })
       .catch((fetchError) => {
         clearSession();
         if (fetchError instanceof ApiError) {
@@ -245,6 +304,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role,
         employee,
         sessionKind,
+        circleAuth,
         isLoading,
         isAuthenticating,
         error,

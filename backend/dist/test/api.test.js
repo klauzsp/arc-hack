@@ -34,6 +34,22 @@ function createTestHarness(overrides = {}) {
     });
     return { ...harness, config, employee };
 }
+function jsonResponse(body, status = 200) {
+    return new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+    });
+}
+async function withMockedFetch(handler, run) {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = handler;
+    try {
+        await run();
+    }
+    finally {
+        globalThis.fetch = originalFetch;
+    }
+}
 (0, node_test_1.default)("dashboard and treasury endpoints return seeded summary data", async () => {
     const { app } = createTestHarness();
     const dashboard = await app.inject({ method: "GET", url: "/dashboard" });
@@ -90,8 +106,8 @@ function createTestHarness(overrides = {}) {
     }
     await app.close();
 });
-(0, node_test_1.default)("admin can deactivate a recipient from the live recipient list", async () => {
-    const { app, employee } = createTestHarness();
+(0, node_test_1.default)("admin can fully delete a recipient from the live recipient list", async () => {
+    const { app, employee, repository } = createTestHarness();
     const deleteResponse = await app.inject({
         method: "DELETE",
         url: `/recipients/${employee.id}`,
@@ -107,12 +123,58 @@ function createTestHarness(overrides = {}) {
     strict_1.default.equal(recipientsResponse.statusCode, 200);
     const recipients = recipientsResponse.json();
     strict_1.default.equal(recipients.some((recipient) => recipient.id === employee.id), false);
+    strict_1.default.equal(repository.getEmployee(employee.id), null);
     const deletedEmployeeMe = await app.inject({
         method: "GET",
         url: "/me",
         headers: { authorization: "Bearer employee-token" },
     });
     strict_1.default.equal(deletedEmployeeMe.statusCode, 401);
+    await app.close();
+});
+(0, node_test_1.default)("deleting an invite recipient removes their access code and employee row", async () => {
+    const { app, repository } = createTestHarness();
+    const createRecipientResponse = await app.inject({
+        method: "POST",
+        url: "/recipients",
+        headers: { authorization: "Bearer admin-token" },
+        payload: {
+            walletAddress: null,
+            name: "Delete Invite",
+            payType: "hourly",
+            rate: 32,
+            scheduleId: "s-2",
+            timeTrackingMode: "check_in_out",
+            employmentStartDate: "2026-02-15",
+        },
+    });
+    strict_1.default.equal(createRecipientResponse.statusCode, 200);
+    const recipientId = createRecipientResponse.json().id;
+    const inviteResponse = await app.inject({
+        method: "POST",
+        url: `/recipients/${recipientId}/access-code`,
+        headers: { authorization: "Bearer admin-token" },
+        payload: {},
+    });
+    strict_1.default.equal(inviteResponse.statusCode, 200);
+    const code = inviteResponse.json().code;
+    strict_1.default.ok(code.length >= 8);
+    strict_1.default.equal(repository.listEmployeeInviteCodes(recipientId).length, 1);
+    const deleteResponse = await app.inject({
+        method: "DELETE",
+        url: `/recipients/${recipientId}`,
+        headers: { authorization: "Bearer admin-token" },
+    });
+    strict_1.default.equal(deleteResponse.statusCode, 200);
+    strict_1.default.equal(deleteResponse.json().ok, true);
+    strict_1.default.equal(repository.getEmployee(recipientId), null);
+    strict_1.default.equal(repository.listEmployeeInviteCodes(recipientId).length, 0);
+    const redeemResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/redeem",
+        payload: { code },
+    });
+    strict_1.default.equal(redeemResponse.statusCode, 500);
     await app.close();
 });
 (0, node_test_1.default)("employee earnings and time routes are scoped to the signed-in wallet", async () => {
@@ -186,6 +248,58 @@ function createTestHarness(overrides = {}) {
     });
     strict_1.default.equal(afterEarnings.statusCode, 200);
     strict_1.default.ok(afterEarnings.json().availableToWithdraw < beforeAvailable);
+    await app.close();
+});
+(0, node_test_1.default)("employee time entries cannot overlap existing entries on the same day", async () => {
+    const { app, repository } = createTestHarness();
+    const timeEmployee = repository.listEmployees().find((employee) => employee.timeTrackingMode === "check_in_out");
+    strict_1.default.ok(timeEmployee);
+    repository.createSession({
+        token: "time-overlap-token",
+        address: timeEmployee.walletAddress,
+        role: "employee",
+        employeeId: timeEmployee.id,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    repository.createTimeEntry({
+        id: "existing-overlap-entry",
+        employeeId: timeEmployee.id,
+        date: "2026-03-06",
+        clockIn: "14:00",
+        clockOut: "18:00",
+        createdAt: "2026-03-06T14:00:00.000Z",
+    });
+    const overlappingClockInResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-entries/clock-in",
+        headers: { authorization: "Bearer time-overlap-token" },
+        payload: { date: "2026-03-06", clockIn: "15:30" },
+    });
+    strict_1.default.equal(overlappingClockInResponse.statusCode, 500);
+    strict_1.default.match(overlappingClockInResponse.json().error, /overlaps an existing entry/i);
+    const validClockInResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-entries/clock-in",
+        headers: { authorization: "Bearer time-overlap-token" },
+        payload: { date: "2026-03-06", clockIn: "12:00" },
+    });
+    strict_1.default.equal(validClockInResponse.statusCode, 200);
+    const overlappingClockOutResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-entries/clock-out",
+        headers: { authorization: "Bearer time-overlap-token" },
+        payload: { clockOut: "15:00" },
+    });
+    strict_1.default.equal(overlappingClockOutResponse.statusCode, 500);
+    strict_1.default.match(overlappingClockOutResponse.json().error, /overlaps an existing entry/i);
+    const reverseClockOutResponse = await app.inject({
+        method: "POST",
+        url: "/me/time-entries/clock-out",
+        headers: { authorization: "Bearer time-overlap-token" },
+        payload: { clockOut: "11:45" },
+    });
+    strict_1.default.equal(reverseClockOutResponse.statusCode, 500);
+    strict_1.default.match(reverseClockOutResponse.json().error, /later than clock-in time/i);
     await app.close();
 });
 (0, node_test_1.default)("schedule-based earnings accrue linearly during the workday", async () => {
@@ -269,9 +383,8 @@ function createTestHarness(overrides = {}) {
             name: "Ivy Turner",
             payType: "hourly",
             rate: 41,
-            chainPreference: "Base",
-            timeTrackingMode: "schedule_based",
-            scheduleId: "s-1",
+            scheduleId: "s-2",
+            timeTrackingMode: "check_in_out",
             employmentStartDate: "2026-02-15",
         },
     });
@@ -318,12 +431,19 @@ function createTestHarness(overrides = {}) {
             address: account.address,
             message: challenge.message,
             signature,
+            profile: {
+                chainPreference: "Base",
+            },
         },
     });
     strict_1.default.equal(claimResponse.statusCode, 200);
     strict_1.default.equal(claimResponse.json().role, "employee");
     strict_1.default.equal(claimResponse.json().employee.onboardingStatus, "claimed");
     strict_1.default.equal(claimResponse.json().employee.walletAddress.toLowerCase(), account.address.toLowerCase());
+    strict_1.default.equal(claimResponse.json().employee.chainPreference, "Base");
+    strict_1.default.equal(claimResponse.json().employee.scheduleId, "s-2");
+    strict_1.default.equal(claimResponse.json().employee.timeTrackingMode, "check_in_out");
+    strict_1.default.equal(claimResponse.json().employee.employmentStartDate, "2026-02-15");
     const meResponse = await app.inject({
         method: "GET",
         url: "/me",
@@ -337,6 +457,159 @@ function createTestHarness(overrides = {}) {
         payload: { code },
     });
     strict_1.default.equal(reuseResponse.statusCode, 500);
+    await app.close();
+});
+(0, node_test_1.default)("invite-based employee onboarding can provision a Circle wallet through Google sign-in and use it for later login", async () => {
+    const { app, services } = createTestHarness({
+        CIRCLE_API_KEY: "circle-api-key",
+        CIRCLE_APP_ID: "circle-app-id",
+    });
+    const circleWalletAddress = "0x1000000000000000000000000000000000000001";
+    services.circleWalletService.createSocialDeviceToken = async () => ({
+        appId: "circle-app-id",
+        deviceToken: "device-token",
+        deviceEncryptionKey: "device-encryption-key",
+    });
+    services.circleWalletService.startArcWalletProvisioning = async () => ({
+        challengeId: "challenge-123",
+        wallet: null,
+    });
+    services.circleWalletService.getArcWallet = async () => ({
+        id: "wallet-123",
+        address: circleWalletAddress,
+        blockchain: "ARC-TESTNET",
+        state: "LIVE",
+    });
+    const createRecipientResponse = await app.inject({
+        method: "POST",
+        url: "/recipients",
+        headers: { authorization: "Bearer admin-token" },
+        payload: {
+            walletAddress: null,
+            name: "Kai Rivera",
+            payType: "daily",
+            rate: 400,
+            scheduleId: "s-1",
+            timeTrackingMode: "schedule_based",
+            employmentStartDate: "2026-02-01",
+        },
+    });
+    strict_1.default.equal(createRecipientResponse.statusCode, 200);
+    const recipientId = createRecipientResponse.json().id;
+    const inviteResponse = await app.inject({
+        method: "POST",
+        url: `/recipients/${recipientId}/access-code`,
+        headers: { authorization: "Bearer admin-token" },
+        payload: {},
+    });
+    strict_1.default.equal(inviteResponse.statusCode, 200);
+    const code = inviteResponse.json().code;
+    const startResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/circle/start",
+        payload: {
+            code,
+            deviceId: "device-id-123",
+            profile: {
+                chainPreference: "Arc",
+            },
+        },
+    });
+    strict_1.default.equal(startResponse.statusCode, 200);
+    strict_1.default.equal(startResponse.json().circle.deviceToken, "device-token");
+    strict_1.default.equal(startResponse.json().circle.deviceEncryptionKey, "device-encryption-key");
+    const prepareResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/circle/prepare",
+        payload: {
+            code,
+            userToken: "circle-user-token",
+            profile: {
+                chainPreference: "Arc",
+            },
+        },
+    });
+    strict_1.default.equal(prepareResponse.statusCode, 200);
+    strict_1.default.equal(prepareResponse.json().circle.challengeId, "challenge-123");
+    const completeResponse = await app.inject({
+        method: "POST",
+        url: "/onboarding/circle/complete",
+        payload: {
+            code,
+            userToken: "circle-user-token",
+            profile: {
+                chainPreference: "Arc",
+            },
+        },
+    });
+    strict_1.default.equal(completeResponse.statusCode, 200);
+    strict_1.default.equal(completeResponse.json().employee.walletAddress.toLowerCase(), circleWalletAddress.toLowerCase());
+    strict_1.default.equal(completeResponse.json().employee.onboardingMethod, "circle");
+    const googleDeviceTokenResponse = await app.inject({
+        method: "POST",
+        url: "/auth/circle/google/device-token",
+        payload: {
+            deviceId: "device-id-456",
+        },
+    });
+    strict_1.default.equal(googleDeviceTokenResponse.statusCode, 200);
+    strict_1.default.equal(googleDeviceTokenResponse.json().circle.appId, "circle-app-id");
+    const verifyResponse = await app.inject({
+        method: "POST",
+        url: "/auth/circle/google/verify",
+        payload: {
+            userToken: "circle-user-token",
+        },
+    });
+    strict_1.default.equal(verifyResponse.statusCode, 200);
+    strict_1.default.equal(verifyResponse.json().role, "employee");
+    strict_1.default.equal(verifyResponse.json().employee.walletAddress.toLowerCase(), circleWalletAddress.toLowerCase());
+    await app.close();
+});
+(0, node_test_1.default)("editing a recipient chain preference also updates the stored destination domain", async () => {
+    const { app, employee } = createTestHarness();
+    const updateResponse = await app.inject({
+        method: "PATCH",
+        url: `/recipients/${employee.id}`,
+        headers: { authorization: "Bearer admin-token" },
+        payload: {
+            chainPreference: "Base",
+        },
+    });
+    strict_1.default.equal(updateResponse.statusCode, 200);
+    strict_1.default.equal(updateResponse.json().chainPreference, "Base");
+    strict_1.default.equal(updateResponse.json().destinationChainId, 6);
+    await app.close();
+});
+(0, node_test_1.default)("employee withdrawals route to the configured payout destination instead of always Arc", async () => {
+    const { app, repository, services, employee } = createTestHarness();
+    repository.updateEmployee(employee.id, {
+        chainPreference: "Base",
+        destinationChainId: 6,
+        destinationWalletAddress: employee.walletAddress,
+    });
+    let capturedTransfer = null;
+    services.chainService.transferPayroll = async (item) => {
+        capturedTransfer = item;
+        return {
+            txHash: "0xwithdrawbase000000000000000000000000000000000000000000000000000000",
+            status: "processing",
+        };
+    };
+    const withdrawResponse = await app.inject({
+        method: "POST",
+        url: "/me/withdraw",
+        headers: { authorization: "Bearer employee-token" },
+        payload: {},
+    });
+    strict_1.default.equal(withdrawResponse.statusCode, 200);
+    strict_1.default.equal(withdrawResponse.json().chainPreference, "Base");
+    strict_1.default.equal(withdrawResponse.json().destinationChainId, 6);
+    strict_1.default.equal(withdrawResponse.json().status, "processing");
+    strict_1.default.ok(capturedTransfer);
+    const transfer = capturedTransfer;
+    strict_1.default.equal(transfer.destinationChainId, 6);
+    strict_1.default.equal(transfer.recipientWalletAddress, employee.walletAddress);
     await app.close();
 });
 (0, node_test_1.default)("employee time-off requests reject past dates, non-working days, and duplicate active dates", async () => {
@@ -397,5 +670,123 @@ function createTestHarness(overrides = {}) {
     });
     strict_1.default.equal(moveToDuplicateResponse.statusCode, 500);
     strict_1.default.match(moveToDuplicateResponse.json().error, /already have a day-off request/i);
+    await app.close();
+});
+(0, node_test_1.default)("circle employee can prepare a Circle wallet transfer challenge", async () => {
+    const { app, employee, repository } = createTestHarness({
+        CIRCLE_API_KEY: "TEST_API_KEY:test-key:test-secret",
+        CIRCLE_APP_ID: "circle-app-id",
+    });
+    const validWalletAddress = "0x0000000000000000000000000000000000000001";
+    repository.updateEmployee(employee.id, {
+        walletAddress: validWalletAddress,
+        destinationWalletAddress: validWalletAddress,
+        onboardingMethod: "circle",
+        circleWalletId: null,
+    });
+    repository.createSession({
+        token: "circle-employee-token",
+        address: validWalletAddress,
+        role: "employee",
+        employeeId: employee.id,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    await withMockedFetch(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/v1/w3s/wallets") && (init?.method ?? "GET") === "GET") {
+            return jsonResponse({
+                data: {
+                    wallets: [
+                        {
+                            id: "wallet-1",
+                            address: validWalletAddress,
+                            blockchain: "ARC-TESTNET",
+                        },
+                    ],
+                },
+            });
+        }
+        if (url.endsWith("/v1/w3s/user/transactions/transfer") && init?.method === "POST") {
+            const payload = JSON.parse(String(init.body));
+            strict_1.default.equal(payload.walletId, "wallet-1");
+            strict_1.default.equal(payload.destinationAddress, "0x00000000000000000000000000000000000000aa");
+            strict_1.default.deepEqual(payload.amounts, ["1.25"]);
+            strict_1.default.equal(payload.blockchain, "ARC-TESTNET");
+            strict_1.default.equal(payload.tokenAddress, "0x3600000000000000000000000000000000000000");
+            return jsonResponse({
+                data: {
+                    challengeId: "challenge-1",
+                },
+            });
+        }
+        throw new Error(`Unexpected Circle fetch: ${url}`);
+    }, async () => {
+        const response = await app.inject({
+            method: "POST",
+            url: "/me/circle/wallet/transfer",
+            headers: { authorization: "Bearer circle-employee-token" },
+            payload: {
+                userToken: "circle-user-token",
+                destinationAddress: "0x00000000000000000000000000000000000000aa",
+                amount: "1.250000",
+            },
+        });
+        strict_1.default.equal(response.statusCode, 200);
+        const body = response.json();
+        strict_1.default.equal(body.challengeId, "challenge-1");
+        strict_1.default.equal(body.walletAddress, validWalletAddress);
+        strict_1.default.equal(body.amount, 1.25);
+        strict_1.default.equal(repository.getEmployee(employee.id)?.circleWalletId, "wallet-1");
+    });
+    await app.close();
+});
+(0, node_test_1.default)("circle wallet transfer rejects a mismatched Circle session", async () => {
+    const { app, repository, employee } = createTestHarness({
+        CIRCLE_API_KEY: "TEST_API_KEY:test-key:test-secret",
+        CIRCLE_APP_ID: "circle-app-id",
+    });
+    const validWalletAddress = "0x0000000000000000000000000000000000000001";
+    repository.updateEmployee(employee.id, {
+        walletAddress: validWalletAddress,
+        destinationWalletAddress: validWalletAddress,
+        onboardingMethod: "circle",
+    });
+    repository.createSession({
+        token: "circle-employee-token",
+        address: validWalletAddress,
+        role: "employee",
+        employeeId: employee.id,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    await withMockedFetch(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/v1/w3s/wallets") && (init?.method ?? "GET") === "GET") {
+            return jsonResponse({
+                data: {
+                    wallets: [
+                        {
+                            id: "wallet-2",
+                            address: "0x00000000000000000000000000000000000000bb",
+                            blockchain: "ARC-TESTNET",
+                        },
+                    ],
+                },
+            });
+        }
+        throw new Error(`Unexpected Circle fetch: ${url}`);
+    }, async () => {
+        const response = await app.inject({
+            method: "POST",
+            url: "/me/circle/wallet/transfer",
+            headers: { authorization: "Bearer circle-employee-token" },
+            payload: {
+                userToken: "circle-user-token",
+                destinationAddress: "0x00000000000000000000000000000000000000aa",
+                amount: "2",
+            },
+        });
+        strict_1.default.equal(response.statusCode, 403);
+        strict_1.default.match(response.json().error, /does not match/i);
+    });
     await app.close();
 });

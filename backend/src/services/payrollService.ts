@@ -15,7 +15,7 @@ import type {
   TreasuryBalanceRecord,
   WithdrawalRecord,
 } from "../domain/types";
-import { ARC_TESTNET_CCTP_DOMAIN } from "../lib/cctp";
+import { ARC_TESTNET_CCTP_DOMAIN, CCTP_SLOW_FINALITY_THRESHOLD, getCctpRouteByDomain } from "../lib/cctp";
 import { currentSemimonthlyPeriod, isoClock, nowIso, todayIso } from "../lib/dates";
 import { createId } from "../lib/ids";
 import { PayrollRepository } from "../repository";
@@ -235,6 +235,74 @@ export class PayrollService {
     return this.getReferenceNow().slice(0, 10);
   }
 
+  private clockToMinutes(clock: string, label: string) {
+    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(clock);
+    if (!match) {
+      throw new Error(`${label} must use a valid 24-hour time.`);
+    }
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  private assertTimeEntryWindow(input: {
+    date: string;
+    clockIn: string;
+    clockOut?: string | null;
+    entries: TimeEntryRecord[];
+    excludeEntryId?: string;
+  }) {
+    const start = this.clockToMinutes(input.clockIn, "Clock-in time");
+    const end = input.clockOut ? this.clockToMinutes(input.clockOut, "Clock-out time") : null;
+
+    if (end !== null && end <= start) {
+      throw new Error("Clock-out time must be later than clock-in time.");
+    }
+
+    for (const entry of input.entries) {
+      if (entry.id === input.excludeEntryId) continue;
+
+      const otherStart = this.clockToMinutes(entry.clockIn, "Clock-in time");
+      const otherEnd = entry.clockOut ? this.clockToMinutes(entry.clockOut, "Clock-out time") : null;
+
+      if (end === null) {
+        if (otherEnd !== null && start >= otherStart && start < otherEnd) {
+          throw new Error(`This time entry overlaps an existing entry on ${input.date}.`);
+        }
+        continue;
+      }
+
+      if (otherEnd === null) {
+        if (start >= otherStart || end > otherStart) {
+          throw new Error(`This time entry overlaps an existing entry on ${input.date}.`);
+        }
+        continue;
+      }
+
+      if (start < otherEnd && otherStart < end) {
+        throw new Error(`This time entry overlaps an existing entry on ${input.date}.`);
+      }
+    }
+  }
+
+  private resolvePayoutDestination(employee: EmployeeRecord) {
+    const walletAddress =
+      publicWalletAddress(employee.destinationWalletAddress) ??
+      publicWalletAddress(employee.walletAddress);
+    if (!walletAddress) {
+      throw new Error("Employee is missing a valid payout wallet address.");
+    }
+
+    const destinationChainId =
+      employee.destinationChainId ?? chainIdFromPreference(employee.chainPreference, this.config.arcChainId);
+    const route = getCctpRouteByDomain(destinationChainId);
+
+    return {
+      walletAddress,
+      destinationChainId,
+      chainPreference: employee.chainPreference ?? route?.preference ?? "Arc",
+      chainName: route?.displayName ?? "Arc Testnet",
+    };
+  }
+
   private approvedTimeOffRequests(employeeId?: string) {
     return this.repository
       .listTimeOffRequests(employeeId)
@@ -404,7 +472,7 @@ export class PayrollService {
     destinationChainId?: number | null;
     destinationWalletAddress?: string | null;
     scheduleId?: string | null;
-    timeTrackingMode: EmployeeRecord["timeTrackingMode"];
+    timeTrackingMode?: EmployeeRecord["timeTrackingMode"];
     employmentStartDate?: string | null;
   }) {
     const currentPeriod = currentSemimonthlyPeriod(this.getReferenceDate());
@@ -412,6 +480,20 @@ export class PayrollService {
     const normalizedWalletAddress = input.walletAddress?.trim()
       ? input.walletAddress.toLowerCase()
       : `pending:${employeeId}`;
+    const isInviteRecipient = !normalizedWalletAddress.startsWith("0x");
+
+    if (isInviteRecipient) {
+      if (!input.scheduleId) {
+        throw new Error("Invite-based recipient creation requires a schedule.");
+      }
+      if (!input.timeTrackingMode) {
+        throw new Error("Invite-based recipient creation requires a tracking mode.");
+      }
+      if (!input.employmentStartDate) {
+        throw new Error("Invite-based recipient creation requires a start date.");
+      }
+    }
+
     const employee: EmployeeRecord = {
       id: employeeId,
       companyId: this.getCompany().id,
@@ -424,7 +506,7 @@ export class PayrollService {
       destinationChainId: input.destinationChainId ?? chainIdFromPreference(input.chainPreference ?? "Arc", this.config.arcChainId),
       destinationWalletAddress: input.destinationWalletAddress ?? (normalizedWalletAddress.startsWith("0x") ? normalizedWalletAddress : null),
       scheduleId: input.scheduleId ?? this.repository.listSchedules()[0]?.id ?? null,
-      timeTrackingMode: input.timeTrackingMode,
+      timeTrackingMode: input.timeTrackingMode ?? this.getCompany().defaultTimeTrackingMode,
       employmentStartDate: input.employmentStartDate ?? currentPeriod.periodStart,
       onboardingStatus: normalizedWalletAddress.startsWith("0x") ? "claimed" : "unclaimed",
       onboardingMethod: normalizedWalletAddress.startsWith("0x") ? "existing_wallet" : null,
@@ -450,6 +532,7 @@ export class PayrollService {
     employmentStartDate: string | null;
     active: boolean;
   }>) {
+    const current = requireRecord(this.repository.getEmployee(id), "Recipient not found.");
     const patch: Partial<EmployeeRecord> = {};
     if (input.walletAddress !== undefined) {
       if (input.walletAddress?.trim()) {
@@ -463,7 +546,17 @@ export class PayrollService {
     if (input.name !== undefined) patch.name = input.name;
     if (input.payType !== undefined) patch.payType = input.payType;
     if (input.rate !== undefined) patch.rateCents = centsFromDollars(input.rate);
-    if (input.chainPreference !== undefined) patch.chainPreference = input.chainPreference;
+    if (input.chainPreference !== undefined) {
+      patch.chainPreference = input.chainPreference;
+      if (input.destinationChainId === undefined) {
+        patch.destinationChainId = chainIdFromPreference(input.chainPreference, this.config.arcChainId);
+      }
+      if (input.destinationWalletAddress === undefined) {
+        patch.destinationWalletAddress =
+          current.destinationWalletAddress ??
+          publicWalletAddress(input.walletAddress?.trim() ? input.walletAddress.toLowerCase() : current.walletAddress);
+      }
+    }
     if (input.destinationChainId !== undefined) patch.destinationChainId = input.destinationChainId;
     if (input.destinationWalletAddress !== undefined) patch.destinationWalletAddress = input.destinationWalletAddress;
     if (input.scheduleId !== undefined) patch.scheduleId = input.scheduleId;
@@ -475,10 +568,8 @@ export class PayrollService {
   }
 
   deleteRecipient(id: string) {
-    const employee = requireRecord(this.repository.getEmployee(id), "Recipient not found.");
-    this.repository.deactivateEmployee(id);
-    this.repository.deleteSessionsByAddress(employee.walletAddress);
-    this.repository.invalidateActiveInviteCodes(id, nowIso());
+    requireRecord(this.repository.getEmployee(id), "Recipient not found.");
+    this.repository.deleteEmployeeCascade(id);
     return { ok: true };
   }
 
@@ -682,11 +773,17 @@ export class PayrollService {
       throw new Error("Employee is already clocked in.");
     }
     const timeEntries = this.repository.listTimeEntries(employee.id, date, date);
+    const clockIn = input?.clockIn ?? suggestClockInTime(employee.id, date, timeEntries);
+    this.assertTimeEntryWindow({
+      date,
+      clockIn,
+      entries: timeEntries,
+    });
     const entry: TimeEntryRecord = {
       id: createId("time"),
       employeeId: employee.id,
       date,
-      clockIn: input?.clockIn ?? suggestClockInTime(employee.id, date, timeEntries),
+      clockIn,
       clockOut: null,
       createdAt: `${date}T${isoClock()}:00.000Z`,
     };
@@ -702,6 +799,13 @@ export class PayrollService {
     const openEntry = requireRecord(this.repository.getOpenTimeEntry(employee.id), "No active time entry to close.");
     const entriesToday = this.repository.listTimeEntries(employee.id, openEntry.date, openEntry.date);
     const clockOut = input?.clockOut ?? suggestClockOutTime(employee.id, openEntry.date, entriesToday, openEntry.clockIn);
+    this.assertTimeEntryWindow({
+      date: openEntry.date,
+      clockIn: openEntry.clockIn,
+      clockOut,
+      entries: entriesToday,
+      excludeEntryId: openEntry.id,
+    });
     const updated = requireRecord(this.repository.closeTimeEntry(openEntry.id, clockOut), "Time entry not found.");
     return toTimeEntryResponse(updated);
   }
@@ -793,18 +897,29 @@ export class PayrollService {
     }
 
     await this.ensureLiquidity(requestedAmountCents);
-    const txHash = await this.chainService.transferPayroll(normalizedAddress as `0x${string}`, requestedAmountCents);
+    const payoutDestination = this.resolvePayoutDestination(employee);
+    const payoutItem = await this.chainService.preparePayRunItem({
+      employeeId: employee.id,
+      recipientWalletAddress: payoutDestination.walletAddress,
+      destinationChainId: payoutDestination.destinationChainId,
+      amountCents: requestedAmountCents,
+      maxFeeBaseUnits: 0,
+      minFinalityThreshold: CCTP_SLOW_FINALITY_THRESHOLD,
+      useForwarder: false,
+      status: "ready",
+    });
+    const payout = await this.chainService.transferPayroll(payoutItem);
     const { periodStart, periodEnd } = currentSemimonthlyPeriod(this.getReferenceDate());
     const withdrawal: WithdrawalRecord = {
       id: createId("withdrawal"),
       employeeId: employee.id,
-      walletAddress: normalizedAddress,
+      walletAddress: payoutDestination.walletAddress,
       amountCents: requestedAmountCents,
-      txHash,
+      txHash: payout.txHash,
       periodStart,
       periodEnd,
       createdAt: nowIso(),
-      status: "paid",
+      status: payout.status,
     };
     this.repository.createWithdrawal(withdrawal);
 
@@ -816,9 +931,12 @@ export class PayrollService {
 
     return {
       ok: true,
-      txHash,
+      txHash: payout.txHash,
       amount: dollarsFromCents(requestedAmountCents),
-      walletAddress: normalizedAddress,
+      walletAddress: payoutDestination.walletAddress,
+      chainPreference: payoutDestination.chainPreference,
+      destinationChainId: payoutDestination.destinationChainId,
+      status: payout.status,
     };
   }
 

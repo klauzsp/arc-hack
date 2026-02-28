@@ -1,19 +1,41 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useSignMessage } from "wagmi";
 import { Card } from "@/components/Card";
-import { api, type OnboardingRedeemResponse } from "@/lib/api";
+import { api, type OnboardingProfilePayload, type OnboardingRedeemResponse } from "@/lib/api";
+import { getCircleSdkDeviceId } from "@/lib/circleDevice";
+import {
+  clearCircleGoogleState,
+  formatCircleSdkError,
+  hasCircleGoogleCallbackHash,
+  readCircleGoogleState,
+  redirectToCircleGoogleOauth,
+  resetCircleGoogleFlow,
+  writeCircleGoogleState,
+} from "@/lib/circleGoogle";
 import { useAuthSession } from "@/components/AuthProvider";
 import { publicConfig } from "@/lib/publicConfig";
 
 type ClaimMethod = "wallet" | "circle";
+type OnboardingProfileForm = { chainPreference: string };
+type CircleLoginResult = { userToken: string; encryptionKey: string };
+type CircleChallengeStatus = "COMPLETE" | "IN_PROGRESS" | "PENDING" | "FAILED" | "EXPIRED";
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+function messageFromError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return "Circle onboarding failed.";
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function OnboardingPageContent() {
@@ -25,9 +47,14 @@ function OnboardingPageContent() {
   const [code, setCode] = useState(searchParams.get("code")?.toUpperCase() ?? "");
   const [redeemed, setRedeemed] = useState<OnboardingRedeemResponse | null>(null);
   const [selectedMethod, setSelectedMethod] = useState<ClaimMethod>("wallet");
+  const [profile, setProfile] = useState<OnboardingProfileForm>({ chainPreference: "Arc" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const resumedRef = useRef(false);
+  const circleGoogleClientId = publicConfig.circleGoogleClientId;
+  const circleAppId = publicConfig.circleAppId;
+  const circleOnboardingReady = Boolean(circleGoogleClientId && circleAppId);
 
   useEffect(() => {
     const nextCode = searchParams.get("code");
@@ -36,10 +63,182 @@ function OnboardingPageContent() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!redeemed) return;
+    setProfile((current) => ({
+      chainPreference: redeemed.employee.chainPreference ?? current.chainPreference ?? "Arc",
+    }));
+  }, [redeemed]);
+
   const onboardingUrl = useMemo(
     () => `${publicConfig.appUrl}/onboarding`,
     [],
   );
+
+  const buildProfilePayload = (): OnboardingProfilePayload => {
+    return {
+      chainPreference: selectedMethod === "circle" ? "Arc" : profile.chainPreference,
+    };
+  };
+
+  async function completeCircleOnboardingWithRetry(accessCode: string, result: CircleLoginResult) {
+    const onboardingProfile = buildProfilePayload();
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      try {
+        const session = await api.completeCircleOnboarding({
+          code: accessCode,
+          userToken: result.userToken,
+          profile: onboardingProfile,
+        });
+        completeSession(
+          session,
+          "employee",
+          session.employee?.walletAddress ?? null,
+          { userToken: result.userToken, encryptionKey: result.encryptionKey },
+        );
+        clearCircleGoogleState();
+        router.push("/my-earnings");
+        return;
+      } catch (completeError) {
+        const message = messageFromError(completeError);
+        if (!message.toLowerCase().includes("no arc wallet is available yet")) {
+          throw completeError;
+        }
+        lastError = completeError instanceof Error ? completeError : new Error(message);
+        if (attempt < 14) {
+          setStatus("Finishing Circle wallet creation…");
+          await delay(2000);
+        }
+      }
+    }
+
+    throw lastError ?? new Error("Circle wallet is still being created. Please try again in a moment.");
+  }
+
+  async function finalizeCircleOnboarding(accessCode: string, result: CircleLoginResult) {
+    const onboardingProfile = buildProfilePayload();
+    setStatus("Preparing Circle wallet…");
+    const prepare = await api.prepareCircleOnboarding({
+      code: accessCode,
+      userToken: result.userToken,
+      profile: onboardingProfile,
+    });
+
+    if (prepare.circle.challengeId) {
+      const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+      const sdk = new W3SSdk({
+        appSettings: {
+          appId:
+            readCircleGoogleState("onboarding")?.appId ??
+            circleAppId ??
+            "",
+        },
+      });
+      sdk.setAuthentication({
+        userToken: result.userToken,
+        encryptionKey: result.encryptionKey,
+      });
+
+      setStatus("Creating Circle wallet…");
+      const challengeStatus = await new Promise<CircleChallengeStatus | null>((resolve, reject) => {
+        sdk.execute(prepare.circle.challengeId as string, (sdkError, challengeResult) => {
+          if (sdkError) {
+            reject(new Error(formatCircleSdkError(sdkError, "Circle wallet setup failed.")));
+            return;
+          }
+          resolve((challengeResult?.status as CircleChallengeStatus | undefined) ?? null);
+        });
+      });
+
+      if (challengeStatus === "FAILED" || challengeStatus === "EXPIRED") {
+        throw new Error(`Circle wallet setup ended with status ${challengeStatus.toLowerCase()}.`);
+      }
+      if (challengeStatus === "IN_PROGRESS" || challengeStatus === "PENDING") {
+        setStatus("Finishing Circle wallet creation…");
+      }
+    }
+
+    setStatus("Finalizing Circle wallet onboarding…");
+    await completeCircleOnboardingWithRetry(accessCode, result);
+  }
+
+  async function attachCircleSdk(pending: NonNullable<ReturnType<typeof readCircleGoogleState>>) {
+    const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
+    return new W3SSdk(
+      {
+        appSettings: { appId: pending.appId },
+        loginConfigs: {
+          deviceToken: pending.deviceToken,
+          deviceEncryptionKey: pending.deviceEncryptionKey,
+          google: {
+            clientId: circleGoogleClientId as string,
+            redirectUri: onboardingUrl,
+            selectAccountPrompt: true,
+          },
+        },
+      },
+      async (sdkError, result) => {
+        if (sdkError) {
+          clearCircleGoogleState();
+          resumedRef.current = false;
+          setLoading(false);
+          setStatus(null);
+          setError(formatCircleSdkError(sdkError, "Circle Google sign-in failed."));
+          return;
+        }
+        if (!result?.userToken || !result.encryptionKey) {
+          clearCircleGoogleState();
+          resumedRef.current = false;
+          setLoading(false);
+          setStatus(null);
+          setError("Circle did not return a usable Google sign-in session.");
+          return;
+        }
+
+        try {
+          await finalizeCircleOnboarding(pending.code ?? code.trim().toUpperCase(), {
+            userToken: result.userToken,
+            encryptionKey: result.encryptionKey,
+          });
+        } catch (claimError) {
+          clearCircleGoogleState();
+          resumedRef.current = false;
+          setLoading(false);
+          setStatus(null);
+          setError(messageFromError(claimError));
+        }
+      },
+    );
+  }
+
+  useEffect(() => {
+    if (!circleOnboardingReady || resumedRef.current) return;
+
+    const pending = readCircleGoogleState("onboarding");
+    if (!pending) return;
+    if (!hasCircleGoogleCallbackHash()) {
+      resetCircleGoogleFlow();
+      setLoading(false);
+      setStatus(null);
+      setError(null);
+      return;
+    }
+
+    resumedRef.current = true;
+    setLoading(true);
+    setError(null);
+    setStatus("Resuming Circle Google sign-in…");
+
+    void attachCircleSdk(pending).catch((resumeError) => {
+      clearCircleGoogleState();
+      resumedRef.current = false;
+      setLoading(false);
+      setStatus(null);
+      setError(messageFromError(resumeError));
+    });
+  }, [circleOnboardingReady, circleGoogleClientId, onboardingUrl, code]);
 
   const redeemCode = async () => {
     if (!code.trim()) return;
@@ -81,6 +280,7 @@ function OnboardingPageContent() {
         address: normalizedAddress,
         message: challenge.message,
         signature,
+        profile: buildProfilePayload(),
       });
       completeSession(session, "wallet", normalizedAddress);
       router.push("/my-earnings");
@@ -92,49 +292,44 @@ function OnboardingPageContent() {
   };
 
   const claimWithCircle = async () => {
+    if (!circleOnboardingReady) {
+      setError("NEXT_PUBLIC_CIRCLE_APP_ID and NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID must both be set in frontend configuration.");
+      return;
+    }
+
+    resumedRef.current = false;
+    resetCircleGoogleFlow();
     setLoading(true);
     setError(null);
-    setStatus("Starting Circle wallet provisioning…");
+    setStatus("Getting Circle device ID…");
     try {
-      const start = await api.startCircleOnboarding(code.trim().toUpperCase());
-      const appId = publicConfig.circleAppId ?? start.circle.appId;
-      if (!appId) {
-        throw new Error("Circle App ID is missing from frontend configuration.");
-      }
-
-      if (start.circle.challengeId) {
-        const { W3SSdk } = await import("@circle-fin/w3s-pw-web-sdk");
-        const sdk = new W3SSdk({
-          appSettings: { appId },
-          authentication: {
-            userToken: start.circle.userToken,
-            encryptionKey: start.circle.encryptionKey,
-          },
-        });
-
-        setStatus("Complete the Circle wallet setup modal…");
-        await new Promise<void>((resolve, reject) => {
-          sdk.execute(start.circle.challengeId as string, (sdkError) => {
-            if (sdkError) {
-              reject(new Error(typeof sdkError === "string" ? sdkError : "Circle wallet setup failed."));
-              return;
-            }
-            resolve();
-          });
-        });
-      }
-
-      setStatus("Finalizing Circle wallet onboarding…");
-      const session = await api.completeCircleOnboarding({
+      const onboardingProfile = buildProfilePayload();
+      const deviceId = await getCircleSdkDeviceId(circleAppId as string);
+      setStatus("Requesting Circle onboarding token…");
+      const start = await api.startCircleOnboarding({
         code: code.trim().toUpperCase(),
-        userToken: start.circle.userToken,
+        deviceId,
+        profile: onboardingProfile,
       });
-      completeSession(session, "employee", session.employee?.walletAddress ?? null);
-      router.push("/my-earnings");
+      writeCircleGoogleState({
+        mode: "onboarding",
+        code: code.trim().toUpperCase(),
+        appId: start.circle.appId,
+        deviceToken: start.circle.deviceToken,
+        deviceEncryptionKey: start.circle.deviceEncryptionKey,
+        createdAt: Date.now(),
+      });
+      setStatus("Redirecting browser to Google…");
+      redirectToCircleGoogleOauth({
+        clientId: circleGoogleClientId as string,
+        redirectUri: onboardingUrl,
+        selectAccountPrompt: true,
+      });
     } catch (claimError) {
-      setError(claimError instanceof Error ? claimError.message : "Circle onboarding failed.");
-    } finally {
+      clearCircleGoogleState();
       setLoading(false);
+      setStatus(null);
+      setError(messageFromError(claimError));
     }
   };
 
@@ -187,6 +382,25 @@ function OnboardingPageContent() {
                   <p className="mt-1 text-sm text-slate-600">
                     Code expires {new Date(redeemed.invite.expiresAt).toLocaleString()}.
                   </p>
+                  <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                    <div>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Preset pay</span>
+                        <p className="mt-1 font-medium text-slate-900">
+                        {redeemed.employee.payType === "yearly"
+                          ? `$${redeemed.employee.rate.toLocaleString()}/yr`
+                          : redeemed.employee.payType === "daily"
+                            ? `$${redeemed.employee.rate}/day`
+                            : `$${redeemed.employee.rate}/hr`}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Preset work setup</span>
+                      <p className="mt-1 font-medium text-slate-900">
+                        {redeemed.employee.timeTrackingMode === "check_in_out" ? "Check-in / Check-out" : "Schedule-based"}
+                        {redeemed.employee.scheduleId ? `, ${redeemed.employee.scheduleId}` : ""}
+                      </p>
+                    </div>
+                  </div>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     <button
@@ -214,11 +428,41 @@ function OnboardingPageContent() {
                           : "border-slate-200 bg-white/80 hover:border-slate-300"
                       } disabled:cursor-not-allowed disabled:opacity-50`}
                     >
-                      <p className="text-sm font-semibold text-slate-900">Create Circle wallet</p>
+                      <p className="text-sm font-semibold text-slate-900">Create Circle wallet with Google</p>
                       <p className="mt-1 text-sm text-slate-500">
-                        Provision a new Arc wallet through Circle user-controlled wallets for payroll deposits.
+                        Sign in with Google, then provision a new Arc wallet through Circle for payroll deposits.
                       </p>
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {redeemed && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                  <p className="text-sm font-medium text-slate-900">Payout setup</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Your name, pay, schedule, tracking mode, and start date were preset by the CEO. Choose how payroll should reach you.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {selectedMethod === "wallet" ? (
+                      <select
+                        value={profile.chainPreference}
+                        onChange={(event) => setProfile((current) => ({ ...current, chainPreference: event.target.value }))}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                      >
+                        <option value="Arc">Arc</option>
+                        <option value="Ethereum">Ethereum</option>
+                        <option value="Base">Base</option>
+                        <option value="Arbitrum">Arbitrum</option>
+                      </select>
+                    ) : (
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                        Circle wallet payouts are locked to Arc.
+                      </div>
+                    )}
+                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                      Start date: {redeemed.employee.employmentStartDate ?? "Set by CEO"}
+                    </div>
                   </div>
                 </div>
               )}
@@ -249,15 +493,23 @@ function OnboardingPageContent() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
                   <p className="text-sm font-medium text-slate-900">Circle wallet onboarding</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    This creates a new Arc wallet through Circle and binds it to your payroll profile.
+                    This signs you in with Google, creates a new Arc wallet through Circle, and binds it to your payroll profile.
                   </p>
+                  <p className="mt-2 text-xs text-slate-400">
+                    This redirects the page to Google first, then returns here for Circle wallet setup.
+                  </p>
+                  {!circleOnboardingReady && (
+                    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                      Add <code>NEXT_PUBLIC_CIRCLE_APP_ID</code> and <code>NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID</code> to <code>frontend/.env.local</code> before using Circle onboarding.
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => void claimWithCircle()}
-                    disabled={loading}
+                    disabled={loading || !circleOnboardingReady}
                     className="mt-4 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {loading ? "Starting…" : "Create Circle wallet"}
+                    {loading ? "Starting…" : "Continue with Circle + Google"}
                   </button>
                 </div>
               )}
@@ -277,10 +529,10 @@ function OnboardingPageContent() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">How it works</p>
             <ol className="mt-4 space-y-4 text-sm text-slate-600">
               <li>
-                The CEO creates your payroll recipient record and generates a single-use access code from the Recipients page.
+                The CEO either creates your full recipient directly, or generates a single-use access code with your preset name and pay from the Recipients page.
               </li>
               <li>
-                You redeem that code here and choose your payout setup: an existing wallet you already control or a new Arc wallet created through Circle.
+                If you received a code, you redeem it here and choose your payout setup. The CEO-owned work setup stays fixed.
               </li>
               <li>
                 Once the claim completes, your employee session is created and you can immediately access <code>/my-earnings</code> and <code>/my-time</code>.

@@ -900,8 +900,24 @@ export class PayrollRepository {
     return next;
   }
 
-  deactivateEmployee(id: string) {
-    this.db.prepare("UPDATE employees SET active = 0 WHERE id = ?").run(id);
+  deleteEmployeeCascade(id: string) {
+    this.transaction(() => {
+      const row = this.db
+        .prepare("SELECT wallet_address FROM employees WHERE id = ?")
+        .get(id) as Record<string, unknown> | undefined;
+      if (!row) return;
+
+      const walletAddress = String(row.wallet_address);
+
+      this.db.prepare("DELETE FROM sessions WHERE employee_id = ?").run(id);
+      this.db.prepare("DELETE FROM sessions WHERE address = ?").run(walletAddress.toLowerCase());
+      this.db.prepare("DELETE FROM auth_challenges WHERE address = ?").run(walletAddress.toLowerCase());
+      this.db.prepare("DELETE FROM employee_invite_codes WHERE employee_id = ?").run(id);
+      this.db.prepare("DELETE FROM time_entries WHERE employee_id = ?").run(id);
+      this.db.prepare("DELETE FROM time_off_requests WHERE employee_id = ?").run(id);
+      this.db.prepare("DELETE FROM withdrawals WHERE employee_id = ?").run(id);
+      this.db.prepare("DELETE FROM employees WHERE id = ?").run(id);
+    });
   }
 
   deleteSessionsByAddress(address: string) {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuthSession } from "@/components/AuthProvider";
 import type { Role } from "@/lib/role";
 
 const adminNav = [
@@ -15,7 +16,7 @@ const adminNav = [
   { href: "/policies", label: "Policies", icon: "M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" },
 ];
 
-const employeeNav = [
+const baseEmployeeNav = [
   { href: "/my-earnings", label: "My Earnings", icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" },
   { href: "/my-time", label: "My Time", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
 ];
@@ -38,6 +39,18 @@ function NavIcon({ d }: { d: string }) {
 export function Sidebar({ role }: { role: Role }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { employee } = useAuthSession();
+  const employeeNav =
+    role === "employee" && employee?.onboardingMethod === "circle"
+      ? [
+          ...baseEmployeeNav,
+          {
+            href: "/manage-wallet",
+            label: "Manage Wallet",
+            icon: "M2.25 8.25h19.5m-18 0h16.5A1.5 1.5 0 0121.75 9.75v7.5A1.5 1.5 0 0120.25 18.75H3.75A1.5 1.5 0 012.25 17.25v-7.5A1.5 1.5 0 013.75 8.25zm12 5.25h3",
+          },
+        ]
+      : baseEmployeeNav;
 
   const isActive = (href: string) =>
     pathname === href || (href !== "/" && pathname?.startsWith(href));

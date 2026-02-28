@@ -7,6 +7,7 @@ exports.buildApp = buildApp;
 const fastify_1 = __importDefault(require("fastify"));
 const cors_1 = __importDefault(require("@fastify/cors"));
 const zod_1 = require("zod");
+const viem_1 = require("viem");
 const repository_1 = require("./repository");
 const authService_1 = require("./services/authService");
 const chainService_1 = require("./services/chainService");
@@ -30,7 +31,7 @@ const recipientSchema = zod_1.z.object({
     destinationChainId: zod_1.z.number().nullable().optional(),
     destinationWalletAddress: zod_1.z.string().nullable().optional(),
     scheduleId: zod_1.z.string().nullable().optional(),
-    timeTrackingMode: zod_1.z.enum(["check_in_out", "schedule_based"]),
+    timeTrackingMode: zod_1.z.enum(["check_in_out", "schedule_based"]).optional(),
     employmentStartDate: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     active: zod_1.z.boolean().optional(),
 });
@@ -95,16 +96,42 @@ const adminTimeOffReviewSchema = zod_1.z.object({
 const onboardingCodeSchema = zod_1.z.object({
     code: zod_1.z.string().min(6),
 });
+const circleGoogleDeviceTokenSchema = zod_1.z.object({
+    deviceId: zod_1.z.string().min(1),
+});
+const circleGoogleVerifySchema = zod_1.z.object({
+    userToken: zod_1.z.string().min(1),
+});
 const onboardingWalletChallengeSchema = onboardingCodeSchema.extend({
     address: zod_1.z.string().min(1),
+});
+const onboardingProfileSchema = zod_1.z.object({
+    chainPreference: zod_1.z.string().min(1).nullable().optional(),
 });
 const onboardingWalletClaimSchema = onboardingCodeSchema.extend({
     address: zod_1.z.string().min(1),
     message: zod_1.z.string().min(1),
     signature: zod_1.z.string().startsWith("0x"),
+    profile: onboardingProfileSchema.optional(),
+});
+const onboardingCircleStartSchema = onboardingCodeSchema.extend({
+    deviceId: zod_1.z.string().min(1),
+    profile: onboardingProfileSchema.optional(),
+});
+const onboardingCirclePrepareSchema = onboardingCodeSchema.extend({
+    userToken: zod_1.z.string().min(1),
+    profile: onboardingProfileSchema.optional(),
 });
 const onboardingCircleCompleteSchema = onboardingCodeSchema.extend({
     userToken: zod_1.z.string().min(1),
+    profile: onboardingProfileSchema.optional(),
+});
+const circleWalletSessionSchema = zod_1.z.object({
+    userToken: zod_1.z.string().min(1),
+});
+const circleWalletTransferSchema = circleWalletSessionSchema.extend({
+    destinationAddress: zod_1.z.string().min(1),
+    amount: zod_1.z.string().min(1),
 });
 async function getSessionOrThrow(request, authService, requiredRole) {
     const authorization = request.headers.authorization;
@@ -118,6 +145,20 @@ async function getSessionOrThrow(request, authService, requiredRole) {
     if (requiredRole && session.role !== requiredRole)
         throw new HttpError(403, "Insufficient permissions.");
     return session;
+}
+function normalizeUsdcAmount(value) {
+    const trimmed = value.trim();
+    if (!/^\d+(?:\.\d{1,6})?$/.test(trimmed)) {
+        throw new HttpError(400, "Amount must be a positive USDC value with up to 6 decimals.");
+    }
+    const [whole, fractional = ""] = trimmed.split(".");
+    const normalizedWhole = whole.replace(/^0+(?=\d)/, "") || "0";
+    const normalizedFractional = fractional.replace(/0+$/, "");
+    const normalized = normalizedFractional ? `${normalizedWhole}.${normalizedFractional}` : normalizedWhole;
+    if (Number(normalized) <= 0) {
+        throw new HttpError(400, "Amount must be greater than zero.");
+    }
+    return normalized;
 }
 function buildApp(config) {
     const repository = new repository_1.PayrollRepository(config.dbPath);
@@ -134,7 +175,13 @@ function buildApp(config) {
     const jobService = new jobService_1.JobService(payrollService);
     const app = (0, fastify_1.default)({ logger: false });
     void app.register(cors_1.default, {
-        origin: config.corsOrigin,
+        origin(origin, callback) {
+            if (!origin) {
+                callback(null, true);
+                return;
+            }
+            callback(null, config.corsOrigins.includes(origin));
+        },
         credentials: true,
         methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization"],
@@ -183,9 +230,68 @@ function buildApp(config) {
             nowIso: (0, dates_1.nowIso)(),
         });
     });
+    app.post("/auth/circle/google/device-token", async (request) => {
+        const body = circleGoogleDeviceTokenSchema.parse(request.body ?? {});
+        return authService.issueCircleGoogleDeviceToken(body.deviceId);
+    });
+    app.post("/auth/circle/google/verify", async (request) => {
+        const body = circleGoogleVerifySchema.parse(request.body ?? {});
+        return authService.verifyCircleEmployeeLogin({
+            userToken: body.userToken,
+            nowIso: (0, dates_1.nowIso)(),
+        });
+    });
     app.get("/me", async (request) => {
         const session = await getSessionOrThrow(request, authService);
         return payrollService.getProfile(session.address);
+    });
+    app.post("/me/circle/wallet/transfer", async (request) => {
+        const session = await getSessionOrThrow(request, authService, "employee");
+        const body = circleWalletTransferSchema.parse(request.body ?? {});
+        if (!circleWalletService.isConfigured()) {
+            throw new HttpError(500, "Circle user-controlled wallets are not configured.");
+        }
+        const employee = repository.getEmployeeByWallet(session.address);
+        if (!employee || !employee.active) {
+            throw new HttpError(404, "Active employee not found for this session.");
+        }
+        if (employee.onboardingMethod !== "circle") {
+            throw new HttpError(400, "This employee does not use a Circle wallet.");
+        }
+        if (!(0, viem_1.isAddress)(body.destinationAddress)) {
+            throw new HttpError(400, "Destination wallet address is invalid.");
+        }
+        if (body.destinationAddress.toLowerCase() === session.address.toLowerCase()) {
+            throw new HttpError(400, "Destination wallet must be different from your payroll wallet.");
+        }
+        const wallet = await circleWalletService.getArcWallet(body.userToken);
+        const walletAddress = wallet?.address?.toLowerCase();
+        if (!wallet?.id || !walletAddress || !(0, viem_1.isAddress)(walletAddress)) {
+            throw new HttpError(400, "No Arc Circle wallet is available for this user.");
+        }
+        if (walletAddress !== session.address.toLowerCase()) {
+            throw new HttpError(403, "This Circle session does not match the signed-in payroll employee.");
+        }
+        if (wallet.id !== employee.circleWalletId) {
+            repository.updateEmployee(employee.id, { circleWalletId: wallet.id });
+        }
+        const transfer = await circleWalletService.createTransferChallenge({
+            userToken: body.userToken,
+            walletId: wallet.id,
+            destinationAddress: body.destinationAddress.toLowerCase(),
+            amount: normalizeUsdcAmount(body.amount),
+            refId: `arc-payroll-transfer-${employee.id}-${Date.now()}`,
+        });
+        return {
+            walletAddress,
+            walletId: wallet.id,
+            challengeId: transfer.challengeId,
+            blockchain: transfer.blockchain,
+            tokenAddress: transfer.tokenAddress,
+            symbol: transfer.symbol,
+            destinationAddress: body.destinationAddress.toLowerCase(),
+            amount: Number(body.amount),
+        };
     });
     app.get("/dashboard", async () => payrollService.getDashboardSummary());
     app.get("/recipients", async (request) => {
@@ -229,17 +335,34 @@ function buildApp(config) {
             address: body.address,
             message: body.message,
             signature: body.signature,
+            profile: body.profile,
             nowIso: (0, dates_1.nowIso)(),
         });
     });
     app.post("/onboarding/circle/start", async (request) => {
-        return authService.startCircleOnboarding(onboardingCodeSchema.parse(request.body ?? {}).code, (0, dates_1.nowIso)());
+        const body = onboardingCircleStartSchema.parse(request.body ?? {});
+        return authService.startCircleOnboarding({
+            code: body.code,
+            deviceId: body.deviceId,
+            profile: body.profile,
+            nowIso: (0, dates_1.nowIso)(),
+        });
+    });
+    app.post("/onboarding/circle/prepare", async (request) => {
+        const body = onboardingCirclePrepareSchema.parse(request.body ?? {});
+        return authService.prepareCircleOnboarding({
+            code: body.code,
+            userToken: body.userToken,
+            profile: body.profile,
+            nowIso: (0, dates_1.nowIso)(),
+        });
     });
     app.post("/onboarding/circle/complete", async (request) => {
         const body = onboardingCircleCompleteSchema.parse(request.body ?? {});
         return authService.completeCircleOnboarding({
             code: body.code,
             userToken: body.userToken,
+            profile: body.profile,
             nowIso: (0, dates_1.nowIso)(),
         });
     });
