@@ -16,7 +16,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 // Lifecycle:
 // Employer deposits tokens into the contracts and creates a vest
 // Employee can withdraw their tokens at any time, but only up to the amount released
-// The receiver can identify vests that belong to them by querying employeeToVestIds mapping with their address and then looking up the vest details with the vestIds
+// The receiver can identify vests that belong to them by listening to events and entering in vests mapping
 
 contract Vesting {
     using SafeERC20 for IERC20;
@@ -34,8 +34,6 @@ contract Vesting {
 
     mapping(bytes32 => Vest) public vests;
     bytes32[] public vestIds;
-    // this will return the ids, which can then be used to look up the vest details in the vests mapping
-    mapping(address => bytes32[]) public employeeToVestIds;
 
     // Events
     event VestCreated(
@@ -81,10 +79,7 @@ contract Vesting {
             withdrawn: 0
         });
         vestIds.push(vestId);
-
-        uint256 balanceBefore = usdc.balanceOf(address(this));
         usdc.safeTransferFrom(msg.sender, address(this), amount);
-        employeeToVestIds[recipient].push(vestId);
         emit VestCreated(msg.sender, recipient, amount, startTime, duration);
     }
 

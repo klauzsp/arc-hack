@@ -4,11 +4,5 @@ out = "out"
 libs = ["lib"]
 solc = "0.8.30"
 
-[rpc_endpoints]
-sepolia = "${SEPOLIA_RPC_URL}"
-localhost = "http://localhost:8545"
 
-[etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}" }
-
-remappings = ["openzeppelin/contracts/=lib/openzeppelin-contracts/contracts"]
+remappings = ["@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/"]
