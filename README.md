@@ -1,0 +1,2 @@
+-Vesting, real-time employee wage
+-Excess capital is converted into usyc
