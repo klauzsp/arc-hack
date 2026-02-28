@@ -6,6 +6,7 @@ export type PayRunStatus = "draft" | "pending" | "approved" | "executed" | "fail
 
 export interface Schedule {
   id: string;
+  name?: string;
   workingDays: number[]; // 0-6
   hoursPerDay: number;
   timezone?: string;
@@ -13,6 +14,7 @@ export interface Schedule {
 
 export interface TimeEntry {
   id: string;
+  recipientId: string;
   date: string; // ISO date
   clockIn: string; // ISO time
   clockOut: string;

@@ -1,4 +1,5 @@
 import { CEO_ADDRESS } from "@/lib/contracts";
+import { isKnownRecipientAddress } from "@/lib/mockPayrollEngine";
 
 export type Role = "admin" | "employee" | null;
 
@@ -6,5 +7,6 @@ export type Role = "admin" | "employee" | null;
 export function getMockRole(address: string | undefined): Role {
   if (!address) return null;
   if (address.toLowerCase() === CEO_ADDRESS.toLowerCase()) return "admin";
-  return "employee";
+  if (isKnownRecipientAddress(address)) return "employee";
+  return null;
 }

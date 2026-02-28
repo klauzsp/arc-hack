@@ -1,9 +1,22 @@
-import { getDefaultConfig } from "@rainbow-me/rainbowkit";
+import { createConfig, createStorage, http, injected, noopStorage } from "wagmi";
 import { sepolia, foundry } from "viem/chains";
 
-export const config = getDefaultConfig({
-  appName: "ARC Hack",
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "",
+const connectors = [
+  injected(),
+];
+
+export const config = createConfig({
   chains: [sepolia, foundry],
+  connectors,
   ssr: true,
+  storage: createStorage({
+    storage:
+      typeof window !== "undefined" && window.localStorage
+        ? window.localStorage
+        : noopStorage,
+  }),
+  transports: {
+    [sepolia.id]: http(),
+    [foundry.id]: http(),
+  },
 });

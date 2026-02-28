@@ -1,42 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { mockPayRuns } from "@/lib/mockPayRuns";
+import { useMockPayroll } from "@/components/MockPayrollProvider";
 import {
   mockTotalTreasuryUsdc,
   mockTotalTreasuryUsyc,
   mockChainBalances,
 } from "@/lib/mockTreasury";
-import { mockRecipients } from "@/lib/mockRecipients";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
 
-function statusVariant(s: string): "success" | "warning" | "info" | "default" {
-  if (s === "executed") return "success";
-  if (s === "approved") return "info";
-  if (s === "pending") return "warning";
+function statusVariant(status: string): "success" | "warning" | "info" | "default" {
+  if (status === "executed") return "success";
+  if (status === "approved") return "info";
+  if (status === "pending") return "warning";
   return "default";
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatDate(value: string) {
+  return new Date(`${value}T12:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default function DashboardPage() {
-  const nextRun = mockPayRuns.find((pr) => pr.status === "approved" || pr.status === "pending");
-  const recentRuns = mockPayRuns.filter((pr) => pr.status === "executed").slice(0, 3);
+  const { payRuns, recipients, today } = useMockPayroll();
+  const upcomingRun = payRuns.find(
+    (payRun) => payRun.status === "approved" || payRun.status === "pending" || payRun.status === "draft",
+  );
+  const lastExecutedRun = [...payRuns]
+    .reverse()
+    .find((payRun) => payRun.status === "executed");
+  const recentRuns = [...payRuns].slice(-4).reverse();
+  const issueCount = recipients.filter((recipient) => !recipient.chainPreference).length;
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="text-sm text-slate-500">
-          Overview of your payroll treasury, upcoming runs, and chain balances.
-        </p>
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-sm text-slate-500">
+            Multi-chain USDC. One liquidity surface. Arc routes and settles.
+          </p>
+          <p className="mt-1 text-xs text-slate-400">As of {formatDate(today)}</p>
+        </div>
+        <Badge variant="info">{recipients.length} active recipients</Badge>
       </div>
 
-      {/* KPI row */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           label="Total USDC"
           value={formatCurrency(mockTotalTreasuryUsdc)}
@@ -46,44 +67,67 @@ export default function DashboardPage() {
         <StatCard
           label="Yield (USYC)"
           value={mockTotalTreasuryUsyc.toLocaleString()}
-          subtitle="Earning yield on idle capital"
+          subtitle="Idle capital earning yield"
           icon="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
           trend={{ value: "+4.2% APY", positive: true }}
         />
         <StatCard
           label="Next Pay Run"
-          value={nextRun ? formatCurrency(nextRun.totalAmount) : "None"}
-          subtitle={nextRun ? `${nextRun.periodStart} - ${nextRun.periodEnd}` : "No upcoming runs"}
+          value={upcomingRun ? formatCurrency(upcomingRun.totalAmount) : "None"}
+          subtitle={
+            upcomingRun
+              ? `${formatDate(upcomingRun.periodStart)} - ${formatDate(upcomingRun.periodEnd)}`
+              : "No pay runs scheduled"
+          }
           icon="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
         />
         <StatCard
-          label="Total Recipients"
-          value={String(mockRecipients.length)}
-          subtitle={`${mockRecipients.filter(r => r.payType === "yearly").length} salaried, ${mockRecipients.filter(r => r.payType !== "yearly").length} hourly/daily`}
-          icon="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+          label="Last Pay Date"
+          value={lastExecutedRun ? formatDate(lastExecutedRun.periodEnd) : "Not yet paid"}
+          subtitle={lastExecutedRun ? formatCurrency(lastExecutedRun.totalAmount) : "Awaiting first execution"}
+          icon="M8.25 18.75a1.5 1.5 0 01-1.5-1.5V6.75a1.5 1.5 0 011.5-1.5h7.5a1.5 1.5 0 011.5 1.5v10.5a1.5 1.5 0 01-1.5 1.5h-7.5zM9 10.5h6M9 13.5h6"
+        />
+        <StatCard
+          label="Open Alerts"
+          value={String(issueCount)}
+          subtitle={issueCount === 0 ? "No variances or missing setup" : "Recipients need review"}
+          icon="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+          valueClassName={issueCount === 0 ? "text-emerald-700" : "text-amber-700"}
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recent pay runs */}
         <Card className="lg:col-span-2">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-slate-900">Recent Pay Runs</h2>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Recent Pay Runs</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Review the latest payroll drafts, approvals, and executions.</p>
+            </div>
             <Link href="/pay-runs" className="text-xs font-medium text-blue-600 hover:text-blue-700">
               View all
             </Link>
           </div>
           <div className="divide-y divide-slate-100">
-            {mockPayRuns.slice(0, 4).map((pr) => (
-              <Link key={pr.id} href={`/pay-runs/${pr.id}`} className="flex items-center justify-between px-5 py-3.5 transition-colors hover:bg-slate-50">
+            {recentRuns.map((payRun) => (
+              <Link
+                key={payRun.id}
+                href={`/pay-runs/${payRun.id}`}
+                className="flex items-center justify-between px-5 py-3.5 transition-colors hover:bg-slate-50"
+              >
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">{pr.periodStart} &ndash; {pr.periodEnd}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{pr.recipientCount} recipients</p>
+                  <p className="text-sm font-medium text-slate-900">
+                    {formatDate(payRun.periodStart)} - {formatDate(payRun.periodEnd)}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {payRun.recipientCount} recipients
+                  </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold text-slate-900">{formatCurrency(pr.totalAmount)}</span>
-                  <Badge variant={statusVariant(pr.status)}>
-                    {pr.status.charAt(0).toUpperCase() + pr.status.slice(1)}
+                  <span className="text-sm font-semibold text-slate-900">
+                    {formatCurrency(payRun.totalAmount)}
+                  </span>
+                  <Badge variant={statusVariant(payRun.status)}>
+                    {payRun.status.charAt(0).toUpperCase() + payRun.status.slice(1)}
                   </Badge>
                 </div>
               </Link>
@@ -91,7 +135,6 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        {/* Chain balances */}
         <Card>
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold text-slate-900">Chain Balances</h2>
@@ -99,25 +142,24 @@ export default function DashboardPage() {
               Treasury
             </Link>
           </div>
-          <div className="p-5 space-y-3">
-            {mockChainBalances.map((c) => {
-              const pct = Math.round((c.usdcBalance / mockTotalTreasuryUsdc) * 100);
+          <div className="space-y-3 p-5">
+            {mockChainBalances.map((chain) => {
+              const percent = Math.round((chain.usdcBalance / mockTotalTreasuryUsdc) * 100);
               return (
-                <div key={c.chainId}>
+                <div key={chain.chainId}>
                   <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-blue-500" />
-                      <span className="font-medium text-slate-700">{c.chainName}</span>
+                      <span className="font-medium text-slate-700">{chain.chainName}</span>
                     </div>
-                    <span className="font-semibold text-slate-900">{formatCurrency(c.usdcBalance)}</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatCurrency(chain.usdcBalance)}
+                    </span>
                   </div>
                   <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100">
-                    <div
-                      className="h-1.5 rounded-full bg-blue-500 transition-all"
-                      style={{ width: `${pct}%` }}
-                    />
+                    <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${percent}%` }} />
                   </div>
-                  <p className="mt-0.5 text-right text-[10px] text-slate-400">{pct}%</p>
+                  <p className="mt-0.5 text-right text-[10px] text-slate-400">{percent}%</p>
                 </div>
               );
             })}
@@ -125,7 +167,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Status bar */}
       <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -135,11 +176,15 @@ export default function DashboardPage() {
               </svg>
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-900">All systems operational</p>
-              <p className="text-xs text-slate-500">No alerts or issues with pay runs</p>
+              <p className="text-sm font-semibold text-slate-900">Arc settlement status</p>
+              <p className="text-xs text-slate-500">
+                Treasury routing and payroll previews are healthy across {mockChainBalances.length} chains.
+              </p>
             </div>
           </div>
-          <Badge variant="success">Healthy</Badge>
+          <Badge variant={issueCount === 0 ? "success" : "warning"}>
+            {issueCount === 0 ? "Healthy" : `${issueCount} attention needed`}
+          </Badge>
         </div>
       </Card>
     </div>

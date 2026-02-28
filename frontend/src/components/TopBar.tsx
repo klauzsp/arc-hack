@@ -1,6 +1,6 @@
 "use client";
 
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { WalletButton } from "./WalletButton";
 
 export function TopBar({ title }: { title: string }) {
   return (
@@ -13,7 +13,7 @@ export function TopBar({ title }: { title: string }) {
           <span className="h-2 w-2 rounded-full bg-green-500" />
           <span className="text-xs font-medium text-slate-600">All chains</span>
         </div>
-        <ConnectButton showBalance={false} />
+        <WalletButton />
       </div>
     </header>
   );

@@ -1,35 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { mockPayRuns } from "@/lib/mockPayRuns";
+import { useState } from "react";
+import { useMockPayroll } from "@/components/MockPayrollProvider";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 
-function statusVariant(s: string): "success" | "warning" | "info" | "default" {
-  if (s === "executed") return "success";
-  if (s === "approved") return "info";
-  if (s === "pending") return "warning";
+function statusVariant(status: string): "success" | "warning" | "info" | "default" {
+  if (status === "executed") return "success";
+  if (status === "approved") return "info";
+  if (status === "pending") return "warning";
   return "default";
 }
 
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function formatDate(value: string) {
+  return new Date(`${value}T12:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default function PayRunsPage() {
-  const executed = mockPayRuns.filter((pr) => pr.status === "executed");
-  const totalPaid = executed.reduce((acc, pr) => acc + pr.totalAmount, 0);
+  const { payRuns, createPayRun } = useMockPayroll();
+  const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+  const sortedPayRuns = [...payRuns].reverse();
+  const executedRuns = payRuns.filter((payRun) => payRun.status === "executed");
+  const totalPaid = executedRuns.reduce((total, payRun) => total + payRun.totalAmount, 0);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-slate-500">
-            Manage bi-weekly payroll runs. Create, review, and execute multi-chain USDC payouts.
+            Create draft pay runs, review multi-chain payout previews, and execute approved payrolls.
           </p>
         </div>
         <button
           type="button"
+          onClick={() => setLastCreatedId(createPayRun().id)}
           className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
         >
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -39,15 +56,36 @@ export default function PayRunsPage() {
         </button>
       </div>
 
-      {/* Summary strip */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {lastCreatedId && (
+        <Card className="border-blue-200 bg-blue-50/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Draft pay run created</p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Review the new mock draft and adjust recipients before execution.
+              </p>
+            </div>
+            <Link href={`/pay-runs/${lastCreatedId}`} className="text-sm font-medium text-blue-600 hover:text-blue-700">
+              Open draft
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-4">
         <Card className="p-4">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Total Runs</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{mockPayRuns.length}</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{payRuns.length}</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Completed</p>
-          <p className="mt-1 text-xl font-bold text-emerald-700">{executed.length}</p>
+          <p className="mt-1 text-xl font-bold text-emerald-700">{executedRuns.length}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Approved</p>
+          <p className="mt-1 text-xl font-bold text-blue-700">
+            {payRuns.filter((payRun) => payRun.status === "approved").length}
+          </p>
         </Card>
         <Card className="p-4">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Total Disbursed</p>
@@ -55,58 +93,51 @@ export default function PayRunsPage() {
         </Card>
       </div>
 
-      {/* Table */}
       <Card>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100">
-                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Period
-                </th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Status
-                </th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Amount
-                </th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Recipients
-                </th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Tx Hash
-                </th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Period</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Amount</th>
+                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Recipients</th>
+                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Tx Hash</th>
                 <th className="px-5 py-3.5" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {mockPayRuns.map((pr) => (
-                <tr key={pr.id} className="transition-colors hover:bg-slate-50/50">
+              {sortedPayRuns.map((payRun) => (
+                <tr key={payRun.id} className="transition-colors hover:bg-slate-50/50">
                   <td className="whitespace-nowrap px-5 py-4">
-                    <p className="text-sm font-medium text-slate-900">{pr.periodStart} &ndash; {pr.periodEnd}</p>
-                    {pr.executedAt && (
-                      <p className="mt-0.5 text-xs text-slate-400">Executed {new Date(pr.executedAt).toLocaleDateString()}</p>
+                    <p className="text-sm font-medium text-slate-900">
+                      {formatDate(payRun.periodStart)} - {formatDate(payRun.periodEnd)}
+                    </p>
+                    {payRun.executedAt && (
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        Executed {new Date(payRun.executedAt).toLocaleDateString("en-US")}
+                      </p>
                     )}
                   </td>
                   <td className="whitespace-nowrap px-5 py-4">
-                    <Badge variant={statusVariant(pr.status)}>
-                      {pr.status.charAt(0).toUpperCase() + pr.status.slice(1)}
+                    <Badge variant={statusVariant(payRun.status)}>
+                      {payRun.status.charAt(0).toUpperCase() + payRun.status.slice(1)}
                     </Badge>
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right text-sm font-semibold text-slate-900">
-                    {formatCurrency(pr.totalAmount)}
+                    {formatCurrency(payRun.totalAmount)}
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
                     <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-medium text-slate-600">
-                      {pr.recipientCount}
+                      {payRun.recipientCount}
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right font-mono text-xs text-slate-400">
-                    {pr.txHash ?? "—"}
+                    {payRun.txHash ?? "--"}
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
                     <Link
-                      href={`/pay-runs/${pr.id}`}
+                      href={`/pay-runs/${payRun.id}`}
                       className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
                     >
                       View
