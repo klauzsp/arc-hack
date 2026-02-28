@@ -22,7 +22,7 @@ contract Vesting {
     using SafeERC20 for IERC20;
 
     address public immutable employer;
-    IERC20 public immutable usdc;
+    IERC20 public usdc = IERC20(address(0x3600000000000000000000000000000000000000));
 
     struct Vest {
         uint40 startTime;
@@ -37,20 +37,13 @@ contract Vesting {
 
     // Events
     event VestCreated(
-        address indexed sender,
-        address indexed recipient,
-        uint256 amount,
-        uint256 startTime,
-        uint256 duration
+        address indexed sender, address indexed recipient, uint256 amount, uint256 startTime, uint256 duration
     );
 
-    event VestWithdrawn(
-        address indexed recipient, bytes32 indexed vestId, uint256 amount, uint256 timestamp
-    );
+    event VestWithdrawn(address indexed recipient, bytes32 indexed vestId, uint256 amount, uint256 timestamp);
 
-    constructor (address _usdc) {
+    constructor() {
         employer = msg.sender;
-        usdc = IERC20(_usdc);
     }
 
     /*
@@ -61,26 +54,25 @@ contract Vesting {
      * @param duration The duration of the vest in seconds
      * @param salt Allows for multiple vests to be created with the same parameters
      */
-    function createVest(
-        address recipient,
-        uint256 amount,
-        uint40 startTime,
-        uint40 duration,
-        uint256 salt
-    ) external {
+    function createVest(address recipient, uint256 amount, uint40 startTime, uint40 duration, uint256 salt) external {
         if (amount == 0 || duration == 0) revert("Cannot be 0 amount or duration");
         if (startTime < block.timestamp) revert("Start time cannot be in the past");
         bytes32 vestId = keccak256(abi.encodePacked(recipient, amount, startTime, duration, salt));
-        vests[vestId] = Vest({
-            startTime: startTime,
-            recipient: recipient,
-            duration: duration,
-            amount: amount,
-            withdrawn: 0
-        });
+        vests[vestId] =
+            Vest({startTime: startTime, recipient: recipient, duration: duration, amount: amount, withdrawn: 0});
         vestIds.push(vestId);
         usdc.safeTransferFrom(msg.sender, address(this), amount);
         emit VestCreated(msg.sender, recipient, amount, startTime, duration);
+    }
+
+    // @note need a deallocate
+
+    function cancelVest(bytes32 vestId) external {
+        Vest storage vest = vests[vestId];
+        if (vest.startTime < block.timestamp) revert("Vest has already began");
+        // if (msg.sender != employer) revert("Must be employer");
+        usdc.safeTransfer(employer, vest.amount);
+        delete vests[vestId];
     }
 
     /**
@@ -126,13 +118,11 @@ contract Vesting {
      * @param salt Allows for multiple vests to be created with the same parameters
      * @return The vest ID, which is the keccak256 hash of the vest parameters
      */
-    function computeVestId(
-        address recipient,
-        uint256 amount,
-        uint40 startTime,
-        uint40 duration,
-        uint256 salt
-    ) public view returns (bytes32) {
+    function computeVestId(address recipient, uint256 amount, uint40 startTime, uint40 duration, uint256 salt)
+        public
+        view
+        returns (bytes32)
+    {
         return (keccak256(abi.encodePacked(recipient, amount, startTime, duration, salt)));
     }
 }
