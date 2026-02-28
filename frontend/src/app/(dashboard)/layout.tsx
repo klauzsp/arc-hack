@@ -1,10 +1,9 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useAccount } from "wagmi";
+import { useAuthSession } from "@/components/AuthProvider";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
-import { getMockRole } from "@/lib/mockRole";
 
 const routeTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -28,8 +27,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { address } = useAccount();
-  const role = getMockRole(address);
+  const { role } = useAuthSession();
   const title = getTitle(pathname ?? "/");
 
   return (

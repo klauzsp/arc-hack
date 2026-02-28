@@ -1,0 +1,273 @@
+import type { PayRun, Recipient, Schedule, TimeEntry } from "./mockTypes";
+import type { Role } from "./role";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:3001";
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+type RequestOptions = {
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  token?: string | null;
+  body?: unknown;
+};
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const payload = (await response.json()) as { error?: string };
+      if (payload.error) message = payload.error;
+    } catch {
+      // ignore JSON parsing failures
+    }
+    throw new ApiError(message, response.status);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export interface AuthChallengeResponse {
+  address: string;
+  nonce: string;
+  message: string;
+  expiresAt: string;
+}
+
+export interface AuthVerifyResponse {
+  token: string | null;
+  role: Role;
+  employee: Recipient | null;
+}
+
+export interface MeResponse {
+  role: Role;
+  employee: Recipient | null;
+}
+
+export interface EarningsResponse {
+  employee: Recipient;
+  currentPeriod: {
+    start: string;
+    end: string;
+    earned: number;
+  };
+  ytdEarned: number;
+  alreadyPaid: number;
+  availableToWithdraw: number;
+  breakdown: {
+    currentPeriodHours: number;
+    ytdHours: number;
+    currentPeriodDays: number;
+    ytdDays: number;
+    currentPeriodHolidayCount: number;
+    ytdHolidayCount: number;
+    scheduleHoursPerDay: number;
+  };
+}
+
+export interface TreasuryResponse {
+  totalUsdc: number;
+  totalUsyc: number;
+  chainBalances: Array<{
+    chainId: number;
+    chainName: string;
+    usdcBalance: number;
+    isHub: boolean;
+  }>;
+  autoPolicy: {
+    autoRebalanceEnabled: boolean;
+    autoRedeemEnabled: boolean;
+    rebalanceThreshold: number;
+    payoutNoticeHours: number;
+  };
+}
+
+export interface DashboardSummaryResponse {
+  today: string;
+  totalUsdc: number;
+  totalUsyc: number;
+  upcomingPayRun: {
+    id: string;
+    periodStart: string;
+    periodEnd: string;
+    totalAmount: number;
+    status: PayRun["status"];
+  } | null;
+  lastExecutedPayRun: {
+    id: string;
+    periodStart: string;
+    periodEnd: string;
+    totalAmount: number;
+    executedAt: string | null;
+  } | null;
+  alerts: string[];
+}
+
+export interface PolicyResponse {
+  id: string;
+  name: string;
+  type: string;
+  status: "active" | "paused";
+  config: Record<string, unknown>;
+  lastRunAt: string | null;
+}
+
+export type RecipientPayload = Omit<Recipient, "id">;
+
+export const api = {
+  baseUrl: API_BASE_URL,
+  health: () => request<{ ok: boolean; mode: string }>("/health"),
+  createChallenge: (address: string) =>
+    request<AuthChallengeResponse>("/auth/challenge", {
+      method: "POST",
+      body: { address },
+    }),
+  verifyChallenge: (input: { address: string; message: string; signature: `0x${string}` }) =>
+    request<AuthVerifyResponse>("/auth/verify", {
+      method: "POST",
+      body: input,
+    }),
+  getMe: (token: string) => request<MeResponse>("/me", { token }),
+  getDashboard: () => request<DashboardSummaryResponse>("/dashboard"),
+  getRecipients: (token: string) => request<Recipient[]>("/recipients", { token }),
+  createRecipient: (token: string, payload: RecipientPayload) =>
+    request<Recipient>("/recipients", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  updateRecipient: (token: string, id: string, payload: Partial<RecipientPayload>) =>
+    request<Recipient>(`/recipients/${id}`, {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
+  getSchedules: () => request<Schedule[]>("/schedules"),
+  createSchedule: (token: string, payload: Omit<Schedule, "id">) =>
+    request<Schedule>("/schedules", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  getHolidays: () => request<Array<{ id: string; date: string; name: string }>>("/holidays"),
+  createHoliday: (token: string, payload: { date: string; name: string }) =>
+    request<{ id: string; date: string; name: string }>("/holidays", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  getMyEarnings: (token: string) => request<EarningsResponse>("/me/earnings", { token }),
+  getEmployeeEarnings: (token: string, employeeId: string) =>
+    request<EarningsResponse>(`/employees/${employeeId}/earnings`, { token }),
+  getMyTimeEntries: (token: string) => request<Array<TimeEntry & { clockOut?: string | null }>>("/me/time-entries", { token }),
+  getEmployeeTimeEntries: (token: string, employeeId: string) =>
+    request<Array<TimeEntry & { clockOut?: string | null }>>(`/employees/${employeeId}/time-entries`, { token }),
+  getMySchedule: (token: string) => request<Schedule>("/me/schedule", { token }),
+  clockIn: (token: string, payload?: { date?: string; clockIn?: string }) =>
+    request<TimeEntry & { clockOut?: string | null }>("/me/time-entries/clock-in", {
+      method: "POST",
+      token,
+      body: payload ?? {},
+    }),
+  clockOut: (token: string, payload?: { clockOut?: string }) =>
+    request<TimeEntry & { clockOut?: string | null }>("/me/time-entries/clock-out", {
+      method: "POST",
+      token,
+      body: payload ?? {},
+    }),
+  getPayRuns: (token: string) => request<PayRun[]>("/pay-runs", { token }),
+  getPayRun: (token: string, id: string) => request<PayRun>(`/pay-runs/${id}`, { token }),
+  createPayRun: (token: string, payload: { periodStart: string; periodEnd: string; employeeIds?: string[] }) =>
+    request<PayRun>("/pay-runs", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  updatePayRun: (token: string, id: string, payload: { periodStart?: string; periodEnd?: string; employeeIds?: string[] }) =>
+    request<PayRun>(`/pay-runs/${id}`, {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
+  approvePayRun: (token: string, id: string) =>
+    request<PayRun>(`/pay-runs/${id}/approve`, {
+      method: "POST",
+      token,
+      body: {},
+    }),
+  executePayRun: (token: string, id: string) =>
+    request<PayRun>(`/pay-runs/${id}/execute`, {
+      method: "POST",
+      token,
+      body: {},
+    }),
+  getTreasury: () => request<TreasuryResponse>("/treasury/balances"),
+  updateAutoPolicy: (
+    token: string,
+    payload: Partial<{
+      autoRebalanceEnabled: boolean;
+      autoRedeemEnabled: boolean;
+      rebalanceThreshold: number;
+      payoutNoticeHours: number;
+    }>,
+  ) =>
+    request<TreasuryResponse["autoPolicy"]>("/treasury/auto-policy", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  rebalanceTreasury: (token: string, payload: { direction: "usdc_to_usyc" | "usyc_to_usdc"; amount: number }) =>
+    request<{ txHash: string; treasury: TreasuryResponse }>("/treasury/rebalance", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  getPolicies: () => request<PolicyResponse[]>("/policies"),
+  createPolicy: (
+    token: string,
+    payload: {
+      name: string;
+      type: "payday" | "treasury_threshold" | "manual";
+      status?: "active" | "paused";
+      config?: Record<string, unknown>;
+    },
+  ) =>
+    request<PolicyResponse>("/policies", {
+      method: "POST",
+      token,
+      body: payload,
+    }),
+  updatePolicy: (
+    token: string,
+    id: string,
+    payload: Partial<{
+      name: string;
+      type: "payday" | "treasury_threshold" | "manual";
+      status: "active" | "paused";
+      config: Record<string, unknown>;
+    }>,
+  ) =>
+    request<PolicyResponse>(`/policies/${id}`, {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
+};

@@ -11,6 +11,7 @@ import { StatCard } from "@/components/StatCard";
 function statusVariant(status: string): "success" | "warning" | "info" | "default" {
   if (status === "executed" || status === "paid") return "success";
   if (status === "approved" || status === "ready") return "info";
+  if (status === "processing") return "warning";
   if (status === "pending") return "warning";
   return "default";
 }
@@ -33,8 +34,10 @@ function formatDate(value: string) {
 
 export default function PayRunDetailPage() {
   const params = useParams();
-  const { payRuns, recipients, executePayRun } = useMockPayroll();
+  const { payRuns, recipients, approvePayRun, executePayRun } = useMockPayroll();
   const [wasExecuted, setWasExecuted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const id = params?.id as string;
   const payRun = payRuns.find((candidate) => candidate.id === id);
 
@@ -71,8 +74,14 @@ export default function PayRunDetailPage() {
         <Card className="border-emerald-200 bg-emerald-50/40 p-4">
           <p className="text-sm font-semibold text-emerald-800">Pay run executed</p>
           <p className="mt-0.5 text-xs text-emerald-700">
-            The mock execution updated payout history and employee available balances.
+            The backend execution updated payout history and employee available balances.
           </p>
+        </Card>
+      )}
+
+      {actionError && (
+        <Card className="border-red-200 bg-red-50/40 p-4">
+          <p className="text-sm font-semibold text-red-800">{actionError}</p>
         </Card>
       )}
 
@@ -107,21 +116,48 @@ export default function PayRunDetailPage() {
               </p>
             )}
           </div>
-          {payRun.status === "approved" && (
-            <button
-              type="button"
-              onClick={() => {
-                executePayRun(payRun.id);
-                setWasExecuted(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700"
-            >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              Execute Pay Run
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {payRun.status === "draft" && (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => {
+                  setIsSubmitting(true);
+                  setActionError(null);
+                  void approvePayRun(payRun.id)
+                    .catch((error: unknown) => {
+                      setActionError(error instanceof Error ? error.message : "Failed to approve pay run.");
+                    })
+                    .finally(() => setIsSubmitting(false));
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200"
+              >
+                Approve Pay Run
+              </button>
+            )}
+            {payRun.status === "approved" && (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => {
+                  setIsSubmitting(true);
+                  setActionError(null);
+                  void executePayRun(payRun.id)
+                    .then(() => setWasExecuted(true))
+                    .catch((error: unknown) => {
+                      setActionError(error instanceof Error ? error.message : "Failed to execute pay run.");
+                    })
+                    .finally(() => setIsSubmitting(false));
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                {isSubmitting ? "Executing…" : "Execute Pay Run"}
+              </button>
+            )}
+          </div>
         </div>
       </Card>
 

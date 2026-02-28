@@ -1,12 +1,9 @@
 "use client";
 
 import { useAccount } from "wagmi";
-import { CEO_ADDRESS } from "@/lib/contracts";
-import {
-  mockChainBalances,
-  mockTotalTreasuryUsdc,
-  mockTotalTreasuryUsyc,
-} from "@/lib/mockTreasury";
+import { useState } from "react";
+import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { useAuthSession } from "@/components/AuthProvider";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
@@ -18,7 +15,21 @@ function formatCurrency(n: number) {
 
 export default function TreasuryPage() {
   const { isConnected, address } = useAccount();
-  const isCeo = !!address && address.toLowerCase() === CEO_ADDRESS.toLowerCase();
+  const { role } = useAuthSession();
+  const { treasury, loading, error, rebalanceTreasury } = useMockPayroll();
+  const [rebalanceMessage, setRebalanceMessage] = useState<string | null>(null);
+  const [rebalanceError, setRebalanceError] = useState<string | null>(null);
+  const [isRebalancing, setIsRebalancing] = useState(false);
+  const isCeo = role === "admin";
+
+  if (loading && !treasury) {
+    return <div className="text-sm text-slate-500">Loading treasury…</div>;
+  }
+
+  const chainBalances = treasury?.chainBalances ?? [];
+  const totalUsdc = treasury?.totalUsdc ?? 0;
+  const totalUsyc = treasury?.totalUsyc ?? 0;
+  const autoPolicy = treasury?.autoPolicy;
 
   return (
     <div className="space-y-6">
@@ -30,26 +41,26 @@ export default function TreasuryPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Total USDC"
-          value={formatCurrency(mockTotalTreasuryUsdc)}
+          value={formatCurrency(totalUsdc)}
           subtitle="Across all chains"
           icon="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
         />
         <StatCard
           label="USYC Yield"
-          value={mockTotalTreasuryUsyc.toLocaleString()}
+          value={formatCurrency(totalUsyc)}
           subtitle="Earning yield on Arc Hub"
           icon="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
           trend={{ value: "+4.2% APY", positive: true }}
         />
         <StatCard
           label="Total Value"
-          value={formatCurrency(mockTotalTreasuryUsdc + mockTotalTreasuryUsyc)}
+          value={formatCurrency(totalUsdc + totalUsyc)}
           subtitle="USDC + USYC combined"
           icon="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
         />
         <StatCard
           label="Active Chains"
-          value={String(mockChainBalances.length)}
+          value={String(chainBalances.length)}
           subtitle="With USDC liquidity"
           icon="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
         />
@@ -71,9 +82,19 @@ export default function TreasuryPage() {
               </p>
             </div>
           </div>
-          <Badge variant="success">Active</Badge>
+          <Badge variant={autoPolicy?.autoRebalanceEnabled ? "success" : "warning"}>
+            {autoPolicy?.autoRebalanceEnabled ? "Active" : "Paused"}
+          </Badge>
         </div>
       </Card>
+
+      {(error || rebalanceError || rebalanceMessage) && (
+        <Card className={`${rebalanceError || error ? "border-red-200 bg-red-50/40" : "border-emerald-200 bg-emerald-50/40"} p-4`}>
+          <p className={`text-sm font-semibold ${rebalanceError || error ? "text-red-800" : "text-emerald-800"}`}>
+            {rebalanceError || error || rebalanceMessage}
+          </p>
+        </Card>
+      )}
 
       {/* Chain balances */}
       <Card>
@@ -81,8 +102,8 @@ export default function TreasuryPage() {
           <h3 className="text-sm font-semibold text-slate-900">Balances by Chain</h3>
         </div>
         <div className="grid gap-px bg-slate-100 sm:grid-cols-2 lg:grid-cols-4">
-          {mockChainBalances.map((c) => {
-            const pct = Math.round((c.usdcBalance / mockTotalTreasuryUsdc) * 100);
+          {chainBalances.map((c) => {
+            const pct = totalUsdc ? Math.round((c.usdcBalance / totalUsdc) * 100) : 0;
             return (
               <div key={c.chainId} className="bg-white p-5">
                 <div className="flex items-center justify-between">
@@ -104,6 +125,57 @@ export default function TreasuryPage() {
           <p className="text-xs text-slate-500">Arc Hub serves as the central settlement and routing layer for all cross-chain USDC transfers.</p>
         </div>
       </Card>
+
+      {role === "admin" && (
+        <Card className="p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Manual Treasury Actions</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Trigger backend-driven USDC and USYC rebalancing against the treasury policy.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={isRebalancing}
+                onClick={() => {
+                  setIsRebalancing(true);
+                  setRebalanceError(null);
+                  setRebalanceMessage(null);
+                  void rebalanceTreasury({ direction: "usdc_to_usyc", amount: 25000 })
+                    .then((txHash) => setRebalanceMessage(`Converted $25,000 to USYC. Tx: ${txHash}`))
+                    .catch((rebalanceActionError: unknown) => {
+                      setRebalanceError(rebalanceActionError instanceof Error ? rebalanceActionError.message : "Rebalance failed.");
+                    })
+                    .finally(() => setIsRebalancing(false));
+                }}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200"
+              >
+                Move $25k to USYC
+              </button>
+              <button
+                type="button"
+                disabled={isRebalancing}
+                onClick={() => {
+                  setIsRebalancing(true);
+                  setRebalanceError(null);
+                  setRebalanceMessage(null);
+                  void rebalanceTreasury({ direction: "usyc_to_usdc", amount: 25000 })
+                    .then((txHash) => setRebalanceMessage(`Redeemed $25,000 to USDC. Tx: ${txHash}`))
+                    .catch((rebalanceActionError: unknown) => {
+                      setRebalanceError(rebalanceActionError instanceof Error ? rebalanceActionError.message : "Redeem failed.");
+                    })
+                    .finally(() => setIsRebalancing(false));
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+              >
+                Redeem $25k to USDC
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* CEO section */}
       {isConnected && isCeo && (

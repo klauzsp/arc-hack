@@ -1,29 +1,36 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { formatUnits, parseUnits } from "viem";
+import { useAccount, useChainId, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { Card } from "@/components/Card";
 import {
-  useReadContract,
-  useWriteContract,
-  useWaitForTransactionReceipt,
-} from "wagmi";
-import { useState, useEffect } from "react";
-import { parseUnits, formatUnits } from "viem";
-import {
-  USYC_TELLER_ADDRESS,
+  ARC_TESTNET_CHAIN_ID,
+  ERC20_ABI,
   USDC_ADDRESS,
   USYC_ADDRESS,
   USYC_TELLER_ABI,
-  ERC20_ABI,
-  SEPOLIA_CHAIN_ID,
+  USYC_TELLER_ADDRESS,
 } from "@/lib/contracts";
-import { useAccount } from "wagmi";
-import { Card } from "@/components/Card";
 
 type Action = "approve" | "deposit" | null;
 
 export function CompanyCapitalBlock() {
   const { address } = useAccount();
+  const chainId = useChainId();
   const [usdcAmount, setUsdcAmount] = useState("");
   const [lastAction, setLastAction] = useState<Action>(null);
+
+  if (chainId !== ARC_TESTNET_CHAIN_ID) {
+    return (
+      <Card className="p-6">
+        <h3 className="text-sm font-semibold text-slate-900">USDC / USYC Conversion</h3>
+        <p className="mt-2 text-sm text-slate-500">
+          Switch the connected wallet to Arc Testnet to access treasury conversion.
+        </p>
+      </Card>
+    );
+  }
 
   let parsedAmount = BigInt(0);
   try {
@@ -33,7 +40,7 @@ export function CompanyCapitalBlock() {
   }
 
   const { data: usdcBalance, refetch: refetchUsdcBalance } = useReadContract({
-    chainId: SEPOLIA_CHAIN_ID,
+    chainId: ARC_TESTNET_CHAIN_ID,
     address: USDC_ADDRESS,
     abi: ERC20_ABI,
     functionName: "balanceOf",
@@ -42,7 +49,7 @@ export function CompanyCapitalBlock() {
   });
 
   const { data: usycBalance, refetch: refetchUsycBalance } = useReadContract({
-    chainId: SEPOLIA_CHAIN_ID,
+    chainId: ARC_TESTNET_CHAIN_ID,
     address: USYC_ADDRESS,
     abi: ERC20_ABI,
     functionName: "balanceOf",
@@ -51,7 +58,7 @@ export function CompanyCapitalBlock() {
   });
 
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    chainId: SEPOLIA_CHAIN_ID,
+    chainId: ARC_TESTNET_CHAIN_ID,
     address: USDC_ADDRESS,
     abi: ERC20_ABI,
     functionName: "allowance",
@@ -60,16 +67,14 @@ export function CompanyCapitalBlock() {
   });
 
   const { writeContract, data: hash, isPending, error, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
   useEffect(() => {
-    if (isConfirmed) {
-      refetchUsdcBalance();
-      refetchUsycBalance();
-      refetchAllowance();
-    }
-  }, [isConfirmed, refetchUsdcBalance, refetchUsycBalance, refetchAllowance]);
+    if (!isConfirmed) return;
+    void refetchUsdcBalance();
+    void refetchUsycBalance();
+    void refetchAllowance();
+  }, [isConfirmed, refetchAllowance, refetchUsdcBalance, refetchUsycBalance]);
 
   const isBusy = isPending || isConfirming;
   const needsApproval = parsedAmount > BigInt(0) && (allowance ?? BigInt(0)) < parsedAmount;
@@ -77,7 +82,7 @@ export function CompanyCapitalBlock() {
   const handleApprove = () => {
     setLastAction("approve");
     writeContract({
-      chainId: SEPOLIA_CHAIN_ID,
+      chainId: ARC_TESTNET_CHAIN_ID,
       address: USDC_ADDRESS,
       abi: ERC20_ABI,
       functionName: "approve",
@@ -88,7 +93,7 @@ export function CompanyCapitalBlock() {
   const handleDeposit = () => {
     setLastAction("deposit");
     writeContract({
-      chainId: SEPOLIA_CHAIN_ID,
+      chainId: ARC_TESTNET_CHAIN_ID,
       address: USYC_TELLER_ADDRESS,
       abi: USYC_TELLER_ABI,
       functionName: "deposit",
@@ -102,9 +107,9 @@ export function CompanyCapitalBlock() {
     setLastAction(null);
   };
 
-  const fmtBalance = (val: bigint | undefined) =>
-    val !== undefined
-      ? Number(formatUnits(val, 6)).toLocaleString("en-US", {
+  const fmtBalance = (value: bigint | undefined) =>
+    value !== undefined
+      ? Number(formatUnits(value, 6)).toLocaleString("en-US", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 6,
         })
@@ -137,9 +142,7 @@ export function CompanyCapitalBlock() {
       </div>
 
       <div className="mt-5">
-        <label className="mb-1.5 block text-sm font-medium text-slate-700">
-          Amount to convert
-        </label>
+        <label className="mb-1.5 block text-sm font-medium text-slate-700">Amount to convert</label>
         <div className="relative">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
           <input
@@ -147,16 +150,16 @@ export function CompanyCapitalBlock() {
             min={0}
             step="any"
             value={usdcAmount}
-            onChange={(e) => handleAmountChange(e.target.value)}
+            onChange={(event) => handleAmountChange(event.target.value)}
             placeholder="0.00"
             className="w-full rounded-lg border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
-          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USDC</span>
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">
+            USDC
+          </span>
         </div>
         {allowance !== undefined && parsedAmount > BigInt(0) && (
-          <p className="mt-1.5 text-xs text-slate-400">
-            Current allowance: {fmtBalance(allowance)} USDC
-          </p>
+          <p className="mt-1.5 text-xs text-slate-400">Current allowance: {fmtBalance(allowance)} USDC</p>
         )}
       </div>
 
@@ -219,9 +222,7 @@ export function CompanyCapitalBlock() {
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          {lastAction === "approve"
-            ? "Approval confirmed. You can now convert to USYC."
-            : "Conversion confirmed. USYC received."}
+          {lastAction === "approve" ? "Approval confirmed. You can now convert to USYC." : "Conversion confirmed. USYC received."}
         </div>
       )}
       {error && (

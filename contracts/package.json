@@ -4,7 +4,7 @@
   "scripts": {
     "build": "forge build",
     "test": "forge test -vvv",
-    "deploy:local": "forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast",
-    "deploy:sepolia": "forge script script/Deploy.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast --verify"
+    "deploy:local": "forge script script/Deploy.s.sol:Deploy --rpc-url http://localhost:8545 --broadcast",
+    "deploy:arc-testnet": "forge script script/Deploy.s.sol:Deploy --rpc-url $ARC_TESTNET_RPC_URL --broadcast"
   }
 }

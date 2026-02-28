@@ -2,9 +2,9 @@
 
 import { useAccount } from "wagmi";
 import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { useAuthSession } from "@/components/AuthProvider";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
-import { CEO_ADDRESS } from "@/lib/contracts";
 
 function payTypeLabel(payType: string) {
   return payType === "yearly" ? "Annual Salary" : payType === "daily" ? "Daily Rate" : "Hourly Rate";
@@ -34,6 +34,7 @@ function formatDate(value: string) {
 
 export default function MyEarningsPage() {
   const { address } = useAccount();
+  const { role } = useAuthSession();
   const {
     recipients,
     today,
@@ -44,15 +45,25 @@ export default function MyEarningsPage() {
     getRecipientByWallet,
     getRecipientById,
     getRecipientMetrics,
+    loading,
+    error,
   } = useMockPayroll();
 
   const connectedRecipient = getRecipientByWallet(address);
-  const isAdmin = !!address && address.toLowerCase() === CEO_ADDRESS.toLowerCase();
+  const isAdmin = role === "admin";
   const recipient = connectedRecipient ?? getRecipientById(previewEmployeeId) ?? recipients[0];
   const metrics = recipient ? getRecipientMetrics(recipient.id) : null;
 
+  if (loading && !metrics) {
+    return <div className="text-sm text-slate-500">Loading earnings…</div>;
+  }
+
   if (!recipient || !metrics) {
-    return null;
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-slate-500">{error ?? "Sign in as an employee or admin to view earnings."}</p>
+      </Card>
+    );
   }
 
   const pctPaid = metrics.ytdEarned > 0 ? Math.round((metrics.totalPaid / metrics.ytdEarned) * 100) : 0;

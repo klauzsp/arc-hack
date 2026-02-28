@@ -2,7 +2,7 @@
 
 export type PayType = "yearly" | "daily" | "hourly";
 export type TimeTrackingMode = "check_in_out" | "schedule_based";
-export type PayRunStatus = "draft" | "pending" | "approved" | "executed" | "failed";
+export type PayRunStatus = "draft" | "pending" | "approved" | "processing" | "executed" | "failed";
 
 export interface Schedule {
   id: string;
@@ -27,8 +27,12 @@ export interface Recipient {
   payType: PayType;
   rate: number; // in dollars (or cents per backend)
   chainPreference?: string;
+  destinationChainId?: number | null;
+  destinationWalletAddress?: string | null;
   scheduleId?: string;
   timeTrackingMode: TimeTrackingMode;
+  availableToWithdraw?: number;
+  active?: boolean;
 }
 
 export interface PayRunItem {

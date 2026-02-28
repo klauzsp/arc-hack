@@ -1,12 +1,13 @@
 import { createConfig, createStorage, http, injected, noopStorage } from "wagmi";
-import { sepolia, foundry } from "viem/chains";
+import { foundry } from "viem/chains";
+import { arcTestnet } from "./contracts";
 
 const connectors = [
   injected(),
 ];
 
 export const config = createConfig({
-  chains: [sepolia, foundry],
+  chains: [arcTestnet, foundry],
   connectors,
   ssr: true,
   storage: createStorage({
@@ -16,7 +17,7 @@ export const config = createConfig({
         : noopStorage,
   }),
   transports: {
-    [sepolia.id]: http(),
+    [arcTestnet.id]: http(arcTestnet.rpcUrls.default.http[0]),
     [foundry.id]: http(),
   },
 });

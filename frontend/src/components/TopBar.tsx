@@ -11,7 +11,7 @@ export function TopBar({ title }: { title: string }) {
       <div className="flex items-center gap-3">
         <div className="hidden items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 sm:flex">
           <span className="h-2 w-2 rounded-full bg-green-500" />
-          <span className="text-xs font-medium text-slate-600">All chains</span>
+          <span className="text-xs font-medium text-slate-600">Arc testnet</span>
         </div>
         <WalletButton />
       </div>

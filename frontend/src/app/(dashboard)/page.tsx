@@ -2,11 +2,6 @@
 
 import Link from "next/link";
 import { useMockPayroll } from "@/components/MockPayrollProvider";
-import {
-  mockTotalTreasuryUsdc,
-  mockTotalTreasuryUsyc,
-  mockChainBalances,
-} from "@/lib/mockTreasury";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
@@ -35,7 +30,8 @@ function formatDate(value: string) {
 }
 
 export default function DashboardPage() {
-  const { payRuns, recipients, today } = useMockPayroll();
+  const { dashboard, treasury, payRuns, recipients, today, loading } = useMockPayroll();
+  const chainBalances = treasury?.chainBalances ?? [];
   const upcomingRun = payRuns.find(
     (payRun) => payRun.status === "approved" || payRun.status === "pending" || payRun.status === "draft",
   );
@@ -43,7 +39,11 @@ export default function DashboardPage() {
     .reverse()
     .find((payRun) => payRun.status === "executed");
   const recentRuns = [...payRuns].slice(-4).reverse();
-  const issueCount = recipients.filter((recipient) => !recipient.chainPreference).length;
+  const issueCount = dashboard?.alerts.length ?? recipients.filter((recipient) => !recipient.chainPreference).length;
+
+  if (loading && !dashboard) {
+    return <div className="text-sm text-slate-500">Loading dashboard…</div>;
+  }
 
   return (
     <div className="space-y-8">
@@ -60,13 +60,13 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           label="Total USDC"
-          value={formatCurrency(mockTotalTreasuryUsdc)}
+          value={formatCurrency(treasury?.totalUsdc ?? 0)}
           subtitle="Across all chains"
           icon="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
         />
         <StatCard
           label="Yield (USYC)"
-          value={mockTotalTreasuryUsyc.toLocaleString()}
+          value={formatCurrency(treasury?.totalUsyc ?? 0)}
           subtitle="Idle capital earning yield"
           icon="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
           trend={{ value: "+4.2% APY", positive: true }}
@@ -143,8 +143,8 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="space-y-3 p-5">
-            {mockChainBalances.map((chain) => {
-              const percent = Math.round((chain.usdcBalance / mockTotalTreasuryUsdc) * 100);
+            {chainBalances.map((chain) => {
+              const percent = treasury?.totalUsdc ? Math.round((chain.usdcBalance / treasury.totalUsdc) * 100) : 0;
               return (
                 <div key={chain.chainId}>
                   <div className="flex items-center justify-between text-sm">
@@ -178,7 +178,7 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm font-semibold text-slate-900">Arc settlement status</p>
               <p className="text-xs text-slate-500">
-                Treasury routing and payroll previews are healthy across {mockChainBalances.length} chains.
+                Treasury routing and payroll previews are healthy across {chainBalances.length} chains.
               </p>
             </div>
           </div>

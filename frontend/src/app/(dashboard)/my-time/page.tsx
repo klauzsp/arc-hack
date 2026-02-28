@@ -2,9 +2,9 @@
 
 import { useAccount } from "wagmi";
 import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { useAuthSession } from "@/components/AuthProvider";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
-import { CEO_ADDRESS } from "@/lib/contracts";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -28,6 +28,7 @@ function formatDate(value: string) {
 
 export default function MyTimePage() {
   const { address } = useAccount();
+  const { role } = useAuthSession();
   const {
     recipients,
     schedules,
@@ -43,10 +44,12 @@ export default function MyTimePage() {
     getRecipientTimeEntries,
     clockIn,
     clockOut,
+    loading,
+    error,
   } = useMockPayroll();
 
   const connectedRecipient = getRecipientByWallet(address);
-  const isAdmin = !!address && address.toLowerCase() === CEO_ADDRESS.toLowerCase();
+  const isAdmin = role === "admin";
   const recipient = connectedRecipient ?? getRecipientById(previewEmployeeId) ?? recipients[0];
   const metrics = recipient ? getRecipientMetrics(recipient.id) : null;
   const schedule = schedules.find((candidate) => candidate.id === recipient?.scheduleId) ?? schedules[0];
@@ -63,8 +66,16 @@ export default function MyTimePage() {
   }, 0);
   const totalHours = (totalMinutes / 60).toFixed(1);
 
+  if (loading && !metrics) {
+    return <div className="text-sm text-slate-500">Loading time data…</div>;
+  }
+
   if (!recipient || !metrics) {
-    return null;
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-slate-500">{error ?? "Sign in as an employee or admin to view time tracking."}</p>
+      </Card>
+    );
   }
 
   return (
@@ -73,7 +84,7 @@ export default function MyTimePage() {
         <div>
           <p className="text-sm text-slate-500">
             {isCheckInOut
-              ? "Track worked time with mock clock-in and clock-out actions."
+              ? "Track worked time with live clock-in and clock-out actions."
               : "Review the schedule and holiday calendar used to infer worked time."}
           </p>
           <p className="mt-1 text-xs text-slate-400">As of {formatDate(today)}</p>
@@ -113,7 +124,7 @@ export default function MyTimePage() {
                 <button
                   type="button"
                   disabled={!!activeSession}
-                  onClick={() => clockIn(recipient.id)}
+                  onClick={() => void clockIn(recipient.id)}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -124,7 +135,7 @@ export default function MyTimePage() {
                 <button
                   type="button"
                   disabled={!activeSession}
-                  onClick={() => clockOut(recipient.id)}
+                  onClick={() => void clockOut(recipient.id)}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

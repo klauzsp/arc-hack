@@ -4,6 +4,9 @@
   "scripts": {
     "dev": "pnpm --filter frontend dev",
     "build": "pnpm --filter frontend build",
+    "backend:dev": "pnpm --filter backend dev",
+    "backend:build": "pnpm --filter backend build",
+    "backend:test": "pnpm --filter backend test",
     "forge:test": "pnpm --filter contracts test",
     "forge:build": "pnpm --filter contracts build"
   },

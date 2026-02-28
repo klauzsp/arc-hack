@@ -9,6 +9,7 @@ import { Card } from "@/components/Card";
 function statusVariant(status: string): "success" | "warning" | "info" | "default" {
   if (status === "executed") return "success";
   if (status === "approved") return "info";
+  if (status === "processing") return "warning";
   if (status === "pending") return "warning";
   return "default";
 }
@@ -30,11 +31,26 @@ function formatDate(value: string) {
 }
 
 export default function PayRunsPage() {
-  const { payRuns, createPayRun } = useMockPayroll();
+  const { payRuns, createPayRun, loading, error } = useMockPayroll();
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const sortedPayRuns = [...payRuns].reverse();
   const executedRuns = payRuns.filter((payRun) => payRun.status === "executed");
   const totalPaid = executedRuns.reduce((total, payRun) => total + payRun.totalAmount, 0);
+
+  const handleCreatePayRun = async () => {
+    setIsCreating(true);
+    try {
+      const payRun = await createPayRun();
+      setLastCreatedId(payRun.id);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  if (loading && payRuns.length === 0) {
+    return <div className="text-sm text-slate-500">Loading pay runs…</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -46,15 +62,22 @@ export default function PayRunsPage() {
         </div>
         <button
           type="button"
-          onClick={() => setLastCreatedId(createPayRun().id)}
+          onClick={() => void handleCreatePayRun()}
+          disabled={isCreating}
           className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
         >
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          New Pay Run
+          {isCreating ? "Creating…" : "New Pay Run"}
         </button>
       </div>
+
+      {error && (
+        <Card className="border-red-200 bg-red-50/40 p-4">
+          <p className="text-sm font-semibold text-red-800">{error}</p>
+        </Card>
+      )}
 
       {lastCreatedId && (
         <Card className="border-blue-200 bg-blue-50/40 p-4">
@@ -62,7 +85,7 @@ export default function PayRunsPage() {
             <div>
               <p className="text-sm font-semibold text-slate-900">Draft pay run created</p>
               <p className="mt-0.5 text-xs text-slate-500">
-                Review the new mock draft and adjust recipients before execution.
+                Review the new draft and approve it before execution.
               </p>
             </div>
             <Link href={`/pay-runs/${lastCreatedId}`} className="text-sm font-medium text-blue-600 hover:text-blue-700">

@@ -1,47 +1,82 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface ITeller {
-    function deposit(uint256 _assets, address _receiver) external returns (uint256);
-    function redeem(uint256 _shares, address _receiver, address _account) external returns (uint256);
+    function deposit(uint256 assets, address receiver) external returns (uint256);
+    function redeem(uint256 shares, address receiver, address account) external returns (uint256);
 }
 
-contract Rebalance {
+/// @notice Converts idle USDC into USYC and redeems back into USDC for payroll liquidity.
+contract Rebalance is Ownable {
     using SafeERC20 for IERC20;
-    ITeller teller = ITeller(0x96424C885951ceb4B79fecb934eD857999e6f82B);
-    IERC20 public usdc = IERC20(address(0x3600000000000000000000000000000000000000));
-    IERC20 public usyc = IERC20(0x38D3A3f8717F4DB1CcB4Ad7D8C755919440848A3);
-    address usycWhitelistedAddress = 0x13e00D9810d3C8Dc19A8C9A172fd9A8aC56e94e0;
 
-    event UsdcToUsyc(uint256 usdcAmount, uint256 usycAmount);
-    event UsycToUsdc(uint256 usdcAmount, uint256 usycAmount);
+    error ZeroAddress();
+    error UnauthorizedOperator();
 
-    // EOA calls allocate on this contact, which through viem calls teller, the EOA sends USDC and receives USYC.
-    // EOA calls redeem on this contract, which through viem calls teller, the EOA sends USYC and receives USDC.
+    ITeller public teller;
+    IERC20 public immutable usdc;
+    IERC20 public immutable usyc;
 
-    function usdcToWhitelisted(uint256 _amount) external {
-        require(msg.sender == usycWhitelistedAddress, "Only whitelisted address can call");
-        usdc.approve(usycWhitelistedAddress, _amount);
-        usdc.safeTransfer(usycWhitelistedAddress, _amount);
+    mapping(address => bool) public operators;
+
+    event OperatorSet(address indexed operator, bool allowed);
+    event TellerSet(address indexed teller);
+    event UsdcToUsyc(address indexed caller, uint256 usdcAmount, uint256 usycAmount, address indexed receiver);
+    event UsycToUsdc(address indexed caller, uint256 usycAmount, uint256 usdcAmount, address indexed receiver);
+
+    constructor(address initialOwner, address usdc_, address usyc_, address teller_) Ownable(initialOwner) {
+        if (initialOwner == address(0) || usdc_ == address(0) || usyc_ == address(0) || teller_ == address(0)) {
+            revert ZeroAddress();
+        }
+
+        usdc = IERC20(usdc_);
+        usyc = IERC20(usyc_);
+        teller = ITeller(teller_);
     }
 
-    function usdcToUsyc(uint256 _amount) external returns (uint256) {
-        require(msg.sender == usycWhitelistedAddress, "Only whitelisted address can deposit");
-        usdc.approve(address(teller), _amount);
-        uint256 usycPurchased = teller.deposit(_amount, usycWhitelistedAddress);
-
-        emit UsdcToUsyc(_amount, usycPurchased);
-        return usycPurchased;
+    modifier onlyOperator() {
+        if (msg.sender != owner() && !operators[msg.sender]) revert UnauthorizedOperator();
+        _;
     }
 
-    function usycToUsdc(uint256 _amount) external returns (uint256) {
-        require(msg.sender == usycWhitelistedAddress, "Only whitelisted address can redeem");
-        uint256 usdcPayout = teller.redeem(_amount, address(this), msg.sender);
-        emit UsycToUsdc(usdcPayout, _amount);
-        return usdcPayout;
+    function setOperator(address operator, bool allowed) external onlyOwner {
+        if (operator == address(0)) revert ZeroAddress();
+        operators[operator] = allowed;
+        emit OperatorSet(operator, allowed);
+    }
+
+    function setTeller(address teller_) external onlyOwner {
+        if (teller_ == address(0)) revert ZeroAddress();
+        teller = ITeller(teller_);
+        emit TellerSet(teller_);
+    }
+
+    /// @notice Converts this contract's USDC balance into USYC.
+    function usdcToUsyc(uint256 amount, address receiver) external onlyOperator returns (uint256 usycPurchased) {
+        if (receiver == address(0)) revert ZeroAddress();
+
+        usdc.forceApprove(address(teller), amount);
+        usycPurchased = teller.deposit(amount, receiver);
+
+        emit UsdcToUsyc(msg.sender, amount, usycPurchased, receiver);
+    }
+
+    /// @notice Redeems this contract's USYC balance into USDC and sends the proceeds to the receiver.
+    function usycToUsdc(uint256 shares, address receiver) external onlyOperator returns (uint256 usdcPayout) {
+        if (receiver == address(0)) revert ZeroAddress();
+
+        usyc.forceApprove(address(teller), shares);
+        usdcPayout = teller.redeem(shares, receiver, address(this));
+
+        emit UsycToUsdc(msg.sender, shares, usdcPayout, receiver);
+    }
+
+    function rescueToken(address token, address to, uint256 amount) external onlyOwner {
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        IERC20(token).safeTransfer(to, amount);
     }
 }
-

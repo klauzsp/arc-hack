@@ -47,11 +47,12 @@ function formatCurrency(value: number) {
 }
 
 export default function RecipientsPage() {
-  const { recipients, schedules, addRecipient, updateRecipient, getRecipientMetrics } = useMockPayroll();
+  const { recipients, schedules, addRecipient, updateRecipient, getRecipientMetrics, loading, error } = useMockPayroll();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipient);
+  const [isSaving, setIsSaving] = useState(false);
 
   const resetForm = () => {
     setFormState(emptyRecipient);
@@ -81,17 +82,26 @@ export default function RecipientsPage() {
     setShowForm(true);
   };
 
-  const saveRecipient = () => {
+  const saveRecipient = async () => {
     if (!formState.name.trim() || !formState.walletAddress.trim()) return;
-    if (editingId) {
-      updateRecipient(editingId, formState);
-      setMessage("Recipient updated.");
-    } else {
-      addRecipient(formState);
-      setMessage("Recipient added.");
+    setIsSaving(true);
+    try {
+      if (editingId) {
+        await updateRecipient(editingId, formState);
+        setMessage("Recipient updated.");
+      } else {
+        await addRecipient(formState);
+        setMessage("Recipient added.");
+      }
+      resetForm();
+    } finally {
+      setIsSaving(false);
     }
-    resetForm();
   };
+
+  if (loading && recipients.length === 0) {
+    return <div className="text-sm text-slate-500">Loading recipients…</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -116,6 +126,12 @@ export default function RecipientsPage() {
       {message && (
         <Card className="border-emerald-200 bg-emerald-50/40 p-4">
           <p className="text-sm font-semibold text-emerald-800">{message}</p>
+        </Card>
+      )}
+
+      {error && (
+        <Card className="border-red-200 bg-red-50/40 p-4">
+          <p className="text-sm font-semibold text-red-800">{error}</p>
         </Card>
       )}
 
@@ -205,10 +221,11 @@ export default function RecipientsPage() {
           <div className="mt-4 flex gap-2">
             <button
               type="button"
-              onClick={saveRecipient}
+              onClick={() => void saveRecipient()}
+              disabled={isSaving}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
-              {editingId ? "Save Changes" : "Save Recipient"}
+              {isSaving ? "Saving…" : editingId ? "Save Changes" : "Save Recipient"}
             </button>
           </div>
         </Card>
