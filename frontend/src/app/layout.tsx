@@ -6,8 +6,8 @@ import "./globals.css";
 const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ARC Hack",
-  description: "ARC Hackathon Project",
+  title: "Payroll | Arc",
+  description: "Multi-chain USDC payroll. One liquidity surface. Arc routes and settles.",
 };
 
 export default function RootLayout({
