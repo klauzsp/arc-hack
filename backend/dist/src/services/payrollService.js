@@ -410,11 +410,17 @@ class PayrollService {
         const patch = {};
         if (input.walletAddress !== undefined) {
             if (input.walletAddress?.trim()) {
-                patch.walletAddress = input.walletAddress.toLowerCase();
+                const normalizedWalletAddress = input.walletAddress.toLowerCase();
+                const walletChanged = current.walletAddress.toLowerCase() !== normalizedWalletAddress;
+                patch.walletAddress = normalizedWalletAddress;
                 patch.destinationWalletAddress = input.destinationWalletAddress ?? input.walletAddress.toLowerCase();
-                patch.onboardingStatus = "claimed";
-                patch.onboardingMethod = "existing_wallet";
-                patch.claimedAt = (0, dates_1.nowIso)();
+                if (walletChanged) {
+                    patch.onboardingStatus = "claimed";
+                    patch.onboardingMethod = "existing_wallet";
+                    patch.claimedAt = (0, dates_1.nowIso)();
+                    patch.circleUserId = null;
+                    patch.circleWalletId = null;
+                }
             }
         }
         if (input.name !== undefined)

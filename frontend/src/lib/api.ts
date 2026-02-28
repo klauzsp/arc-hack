@@ -117,14 +117,22 @@ export interface MeResponse {
 }
 
 export interface CircleWalletTransferResponse {
+  kind: "same_chain_transfer" | "cctp_approval" | "cctp_transfer";
   walletAddress: string;
   walletId: string;
   challengeId: string;
   blockchain: string;
   tokenAddress: string;
   symbol: string;
+  sourceChain: string;
+  destinationChain: string;
+  destinationDomain: number;
   destinationAddress: string;
+  approvalTargetAddress: string | null;
   amount: number;
+  estimatedReceivedAmount: number;
+  maxFee: number;
+  transferSpeed: "instant" | "standard" | "fast";
 }
 
 export interface EarningsResponse {
@@ -262,7 +270,7 @@ export const api = {
   getMe: (token: string) => request<MeResponse>("/me", { token }),
   createCircleWalletTransfer: (
     token: string,
-    payload: { userToken: string; destinationAddress: string; amount: string },
+    payload: { userToken: string; destinationAddress: string; amount: string; destinationPreference?: string },
   ) =>
     request<CircleWalletTransferResponse>("/me/circle/wallet/transfer", {
       method: "POST",

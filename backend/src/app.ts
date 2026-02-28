@@ -1,8 +1,16 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { ZodError, z } from "zod";
-import { isAddress } from "viem";
+import { encodeFunctionData, isAddress, maxUint256, parseAbi, parseUnits } from "viem";
 import { AppConfig } from "./config";
+import {
+  ARC_TESTNET_CCTP_DOMAIN,
+  CCTP_FAST_FINALITY_THRESHOLD,
+  CCTP_FORWARDING_HOOK_DATA,
+  CCTP_SLOW_FINALITY_THRESHOLD,
+  fetchForwardingFee,
+  getCctpRouteByPreference,
+} from "./lib/cctp";
 import { PayrollRepository } from "./repository";
 import { AuthService } from "./services/authService";
 import { ChainService } from "./services/chainService";
@@ -154,7 +162,17 @@ const circleWalletSessionSchema = z.object({
 const circleWalletTransferSchema = circleWalletSessionSchema.extend({
   destinationAddress: z.string().min(1),
   amount: z.string().min(1),
+  destinationPreference: z.string().min(1).optional(),
 });
+
+const erc20ApproveAbi = parseAbi([
+  "function approve(address spender, uint256 amount) returns (bool)",
+]);
+
+const tokenMessengerAbi = parseAbi([
+  "function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold)",
+  "function depositForBurnWithHook(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold, bytes hookData)",
+]);
 
 async function getSessionOrThrow(
   request: { headers: Record<string, unknown> },
@@ -186,6 +204,14 @@ function normalizeUsdcAmount(value: string) {
     throw new HttpError(400, "Amount must be greater than zero.");
   }
   return normalized;
+}
+
+function bytes32FromAddress(address: string) {
+  return `0x${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}` as `0x${string}`;
+}
+
+function usdcBaseUnitsToNumber(value: bigint) {
+  return Number(value) / 1_000_000;
 }
 
 export function buildApp(config: AppConfig) {
@@ -317,24 +343,143 @@ export function buildApp(config: AppConfig) {
     if (wallet.id !== employee.circleWalletId) {
       repository.updateEmployee(employee.id, { circleWalletId: wallet.id });
     }
+    const normalizedAmount = normalizeUsdcAmount(body.amount);
+    const normalizedDestinationAddress = body.destinationAddress.toLowerCase();
+    const destinationRoute = getCctpRouteByPreference(body.destinationPreference ?? "Arc");
+    const amountBaseUnits = parseUnits(normalizedAmount, 6);
 
-    const transfer = await circleWalletService.createTransferChallenge({
+    if (destinationRoute.domain === ARC_TESTNET_CCTP_DOMAIN) {
+      const transfer = await circleWalletService.createTransferChallenge({
+        userToken: body.userToken,
+        walletId: wallet.id,
+        destinationAddress: normalizedDestinationAddress,
+        amount: normalizedAmount,
+        refId: `arc-payroll-transfer-${employee.id}-${Date.now()}`,
+      });
+
+      return {
+        kind: "same_chain_transfer" as const,
+        walletAddress,
+        walletId: wallet.id,
+        challengeId: transfer.challengeId,
+        blockchain: transfer.blockchain,
+        tokenAddress: transfer.tokenAddress,
+        symbol: transfer.symbol,
+        sourceChain: "Arc Testnet",
+        destinationChain: destinationRoute.displayName,
+        destinationDomain: destinationRoute.domain,
+        destinationAddress: normalizedDestinationAddress,
+        approvalTargetAddress: null,
+        amount: Number(normalizedAmount),
+        estimatedReceivedAmount: Number(normalizedAmount),
+        maxFee: 0,
+        transferSpeed: "instant" as const,
+      };
+    }
+
+    const sourceRoute = getCctpRouteByPreference("Arc");
+    const finalityThreshold = sourceRoute.fastSourceSupported
+      ? CCTP_FAST_FINALITY_THRESHOLD
+      : CCTP_SLOW_FINALITY_THRESHOLD;
+    const transferSpeed = sourceRoute.fastSourceSupported ? "fast" : "standard";
+    const useForwarder = destinationRoute.forwarderSupported;
+    const approvalTargetAddress = sourceRoute.tokenMessengerV2.toLowerCase();
+    const allowance = await circleWalletService.getUsdcAllowance(walletAddress, approvalTargetAddress);
+
+    if (allowance < amountBaseUnits) {
+      const approvalChallenge = await circleWalletService.createContractExecutionChallenge({
+        userToken: body.userToken,
+        walletId: wallet.id,
+        contractAddress: sourceRoute.usdcAddress,
+        callData: encodeFunctionData({
+          abi: erc20ApproveAbi,
+          functionName: "approve",
+          args: [sourceRoute.tokenMessengerV2, maxUint256],
+        }),
+        refId: `arc-payroll-cctp-approve-${employee.id}-${Date.now()}`,
+      });
+
+      return {
+        kind: "cctp_approval" as const,
+        walletAddress,
+        walletId: wallet.id,
+        challengeId: approvalChallenge.challengeId,
+        blockchain: sourceRoute.displayName,
+        tokenAddress: sourceRoute.usdcAddress,
+        symbol: "USDC",
+        sourceChain: sourceRoute.displayName,
+        destinationChain: destinationRoute.displayName,
+        destinationDomain: destinationRoute.domain,
+        destinationAddress: normalizedDestinationAddress,
+        approvalTargetAddress,
+        amount: Number(normalizedAmount),
+        estimatedReceivedAmount: Number(normalizedAmount),
+        maxFee: 0,
+        transferSpeed,
+      };
+    }
+
+    const maxFeeBaseUnits =
+      config.chainMode === "live" && useForwarder
+        ? await fetchForwardingFee(
+            sourceRoute.domain,
+            destinationRoute.domain,
+            destinationRoute.isTestnet,
+            finalityThreshold,
+          )
+        : 0n;
+    if (maxFeeBaseUnits >= amountBaseUnits) {
+      throw new HttpError(400, "Amount is too small after CCTP forwarding fees.");
+    }
+
+    const contractExecutionChallenge = await circleWalletService.createContractExecutionChallenge({
       userToken: body.userToken,
       walletId: wallet.id,
-      destinationAddress: body.destinationAddress.toLowerCase(),
-      amount: normalizeUsdcAmount(body.amount),
-      refId: `arc-payroll-transfer-${employee.id}-${Date.now()}`,
+      contractAddress: sourceRoute.tokenMessengerV2,
+      callData: encodeFunctionData({
+        abi: tokenMessengerAbi,
+        functionName: useForwarder ? "depositForBurnWithHook" : "depositForBurn",
+        args: useForwarder
+          ? [
+              amountBaseUnits,
+              destinationRoute.domain,
+              bytes32FromAddress(normalizedDestinationAddress),
+              sourceRoute.usdcAddress,
+              `0x${"0".repeat(64)}` as `0x${string}`,
+              maxFeeBaseUnits,
+              finalityThreshold,
+              CCTP_FORWARDING_HOOK_DATA,
+            ]
+          : [
+              amountBaseUnits,
+              destinationRoute.domain,
+              bytes32FromAddress(normalizedDestinationAddress),
+              sourceRoute.usdcAddress,
+              `0x${"0".repeat(64)}` as `0x${string}`,
+              maxFeeBaseUnits,
+              finalityThreshold,
+            ],
+      }),
+      refId: `arc-payroll-cctp-transfer-${employee.id}-${Date.now()}`,
     });
 
     return {
+      kind: "cctp_transfer" as const,
       walletAddress,
       walletId: wallet.id,
-      challengeId: transfer.challengeId,
-      blockchain: transfer.blockchain,
-      tokenAddress: transfer.tokenAddress,
-      symbol: transfer.symbol,
-      destinationAddress: body.destinationAddress.toLowerCase(),
-      amount: Number(body.amount),
+      challengeId: contractExecutionChallenge.challengeId,
+      blockchain: sourceRoute.displayName,
+      tokenAddress: sourceRoute.usdcAddress,
+      symbol: "USDC",
+      sourceChain: sourceRoute.displayName,
+      destinationChain: destinationRoute.displayName,
+      destinationDomain: destinationRoute.domain,
+      destinationAddress: normalizedDestinationAddress,
+      approvalTargetAddress,
+      amount: Number(normalizedAmount),
+      estimatedReceivedAmount: Number(normalizedAmount) - usdcBaseUnitsToNumber(maxFeeBaseUnits),
+      maxFee: usdcBaseUnitsToNumber(maxFeeBaseUnits),
+      transferSpeed,
     };
   });
 

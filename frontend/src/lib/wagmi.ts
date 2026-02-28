@@ -6,18 +6,10 @@ import { foundry } from "viem/chains";
 import { arcTestnet } from "./contracts";
 import { publicConfig } from "./publicConfig";
 
-const WALLET_RESTORE_DISABLED_PATH_PREFIXES = ["/circle-login", "/onboarding"];
-
-function walletRestoreDisabled() {
-  if (typeof window === "undefined") return false;
-  return WALLET_RESTORE_DISABLED_PATH_PREFIXES.some((prefix) => window.location.pathname.startsWith(prefix));
-}
-
 const browserStorage =
   typeof window !== "undefined" && window.localStorage
     ? {
         getItem(key: string) {
-          if (walletRestoreDisabled()) return null;
           return window.localStorage.getItem(key);
         },
         setItem(key: string, value: string) {

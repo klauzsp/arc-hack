@@ -86,7 +86,7 @@ function storeCircleAuth(value: CircleAuthSession | null) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, status } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<Role>(null);
@@ -106,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCircleAuth(null);
     storeSession(null);
     storeCircleAuth(null);
+    lastValidatedAddressRef.current = null;
   };
 
   const acceptSession = (
@@ -217,9 +218,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!isConnected || !address) {
-      clearSession();
-      setIsLoading(false);
-      lastValidatedAddressRef.current = null;
+      if (status === "connecting" || status === "reconnecting") {
+        setIsLoading(true);
+        return;
+      }
+      if (token === stored.token && sessionKind === "wallet") {
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+      void api
+        .getMe(stored.token)
+        .then((me) => {
+          acceptSession(
+            stored.token,
+            me.role,
+            me.employee,
+            "wallet",
+            stored.address ?? me.employee?.walletAddress ?? null,
+          );
+          setError(null);
+        })
+        .catch((fetchError) => {
+          clearSession();
+          if (fetchError instanceof ApiError) {
+            setError(fetchError.message);
+          }
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
       return;
     }
 
@@ -252,7 +281,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => {
         setIsLoading(false);
       });
-  }, [address, isConnected, sessionKind, token]);
+  }, [address, isConnected, sessionKind, status, token]);
 
   const signIn = async () => {
     if (!address) {

@@ -581,6 +581,35 @@ async function withMockedFetch(handler, run) {
     strict_1.default.equal(updateResponse.json().destinationChainId, 6);
     await app.close();
 });
+(0, node_test_1.default)("editing a circle-onboarded recipient does not downgrade them to external-wallet login", async () => {
+    const { app, repository, employee } = createTestHarness();
+    const circleWalletAddress = "0x1000000000000000000000000000000000000001";
+    repository.updateEmployee(employee.id, {
+        walletAddress: circleWalletAddress,
+        destinationWalletAddress: circleWalletAddress,
+        onboardingStatus: "claimed",
+        onboardingMethod: "circle",
+        circleWalletId: "circle-wallet-1",
+    });
+    const updateResponse = await app.inject({
+        method: "PATCH",
+        url: `/recipients/${employee.id}`,
+        headers: { authorization: "Bearer admin-token" },
+        payload: {
+            walletAddress: circleWalletAddress,
+            chainPreference: "Base",
+        },
+    });
+    strict_1.default.equal(updateResponse.statusCode, 200);
+    strict_1.default.equal(updateResponse.json().onboardingMethod, "circle");
+    strict_1.default.equal(updateResponse.json().chainPreference, "Base");
+    strict_1.default.equal(updateResponse.json().destinationChainId, 6);
+    const updatedEmployee = repository.getEmployee(employee.id);
+    strict_1.default.equal(updatedEmployee?.onboardingMethod, "circle");
+    strict_1.default.equal(updatedEmployee?.circleWalletId, "circle-wallet-1");
+    strict_1.default.equal(updatedEmployee?.destinationChainId, 6);
+    await app.close();
+});
 (0, node_test_1.default)("employee withdrawals route to the configured payout destination instead of always Arc", async () => {
     const { app, repository, services, employee } = createTestHarness();
     repository.updateEmployee(employee.id, {
@@ -733,11 +762,109 @@ async function withMockedFetch(handler, run) {
         });
         strict_1.default.equal(response.statusCode, 200);
         const body = response.json();
+        strict_1.default.equal(body.kind, "same_chain_transfer");
         strict_1.default.equal(body.challengeId, "challenge-1");
         strict_1.default.equal(body.walletAddress, validWalletAddress);
         strict_1.default.equal(body.amount, 1.25);
         strict_1.default.equal(repository.getEmployee(employee.id)?.circleWalletId, "wallet-1");
     });
+    await app.close();
+});
+(0, node_test_1.default)("circle employee gets an approval challenge before a cross-chain CCTP transfer", async () => {
+    const { app, repository, employee, services } = createTestHarness({
+        CIRCLE_API_KEY: "TEST_API_KEY:test-key:test-secret",
+        CIRCLE_APP_ID: "circle-app-id",
+    });
+    const validWalletAddress = "0x0000000000000000000000000000000000000001";
+    repository.updateEmployee(employee.id, {
+        walletAddress: validWalletAddress,
+        destinationWalletAddress: validWalletAddress,
+        onboardingMethod: "circle",
+        circleWalletId: null,
+    });
+    repository.createSession({
+        token: "circle-employee-token",
+        address: validWalletAddress,
+        role: "employee",
+        employeeId: employee.id,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    services.circleWalletService.getArcWallet = async () => ({
+        id: "wallet-1",
+        address: validWalletAddress,
+        blockchain: "ARC-TESTNET",
+    });
+    services.circleWalletService.getUsdcAllowance = async () => 0n;
+    services.circleWalletService.createContractExecutionChallenge = async () => ({
+        challengeId: "approve-challenge-1",
+    });
+    const response = await app.inject({
+        method: "POST",
+        url: "/me/circle/wallet/transfer",
+        headers: { authorization: "Bearer circle-employee-token" },
+        payload: {
+            userToken: "circle-user-token",
+            destinationAddress: "0x00000000000000000000000000000000000000aa",
+            destinationPreference: "Base",
+            amount: "3.5",
+        },
+    });
+    strict_1.default.equal(response.statusCode, 200);
+    const body = response.json();
+    strict_1.default.equal(body.kind, "cctp_approval");
+    strict_1.default.equal(body.challengeId, "approve-challenge-1");
+    strict_1.default.equal(body.destinationDomain, 6);
+    strict_1.default.equal(body.transferSpeed, "standard");
+    strict_1.default.equal(body.approvalTargetAddress.toLowerCase(), "0x8fe6b999dc680ccfdd5bf7eb0974218be2542daa");
+    await app.close();
+});
+(0, node_test_1.default)("circle employee can prepare a CCTP transfer challenge once allowance exists", async () => {
+    const { app, repository, employee, services } = createTestHarness({
+        CIRCLE_API_KEY: "TEST_API_KEY:test-key:test-secret",
+        CIRCLE_APP_ID: "circle-app-id",
+    });
+    const validWalletAddress = "0x0000000000000000000000000000000000000001";
+    repository.updateEmployee(employee.id, {
+        walletAddress: validWalletAddress,
+        destinationWalletAddress: validWalletAddress,
+        onboardingMethod: "circle",
+        circleWalletId: null,
+    });
+    repository.createSession({
+        token: "circle-employee-token",
+        address: validWalletAddress,
+        role: "employee",
+        employeeId: employee.id,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    services.circleWalletService.getArcWallet = async () => ({
+        id: "wallet-1",
+        address: validWalletAddress,
+        blockchain: "ARC-TESTNET",
+    });
+    services.circleWalletService.getUsdcAllowance = async () => 9000000n;
+    services.circleWalletService.createContractExecutionChallenge = async () => ({
+        challengeId: "cctp-challenge-1",
+    });
+    const response = await app.inject({
+        method: "POST",
+        url: "/me/circle/wallet/transfer",
+        headers: { authorization: "Bearer circle-employee-token" },
+        payload: {
+            userToken: "circle-user-token",
+            destinationAddress: "0x00000000000000000000000000000000000000aa",
+            destinationPreference: "Base",
+            amount: "3.5",
+        },
+    });
+    strict_1.default.equal(response.statusCode, 200);
+    const body = response.json();
+    strict_1.default.equal(body.kind, "cctp_transfer");
+    strict_1.default.equal(body.challengeId, "cctp-challenge-1");
+    strict_1.default.equal(body.destinationDomain, 6);
+    strict_1.default.equal(body.transferSpeed, "standard");
+    strict_1.default.equal(body.maxFee, 0);
+    strict_1.default.equal(body.estimatedReceivedAmount, 3.5);
     await app.close();
 });
 (0, node_test_1.default)("circle wallet transfer rejects a mismatched Circle session", async () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createPublicClient, http, parseAbi } from "viem";
 import type { AppConfig } from "../config";
 
 type CircleResponse<T> = {
@@ -38,6 +39,10 @@ type CircleWallet = {
 };
 
 export class CircleWalletService {
+  private readonly erc20Abi = parseAbi([
+    "function allowance(address owner, address spender) view returns (uint256)",
+  ]);
+
   constructor(private readonly config: AppConfig) {}
 
   isConfigured() {
@@ -57,6 +62,23 @@ export class CircleWalletService {
 
   private getUsdcTokenAddress() {
     return (this.config.liveChain?.usdcAddress ?? "0x3600000000000000000000000000000000000000").toLowerCase();
+  }
+
+  async getUsdcAllowance(owner: string, spender: string) {
+    if (this.config.chainMode !== "live" || !this.config.liveChain) {
+      throw new Error("Live chain configuration is required to read Circle wallet allowances.");
+    }
+
+    const client = createPublicClient({
+      transport: http(this.config.liveChain.rpcUrl),
+    });
+
+    return client.readContract({
+      address: this.config.liveChain.usdcAddress,
+      abi: this.erc20Abi,
+      functionName: "allowance",
+      args: [owner as `0x${string}`, spender as `0x${string}`],
+    });
   }
 
   private async circleFetch<T>(
@@ -227,6 +249,34 @@ export class CircleWalletService {
       blockchain: circle.walletBlockchain,
       tokenAddress: this.getUsdcTokenAddress(),
       symbol: "USDC",
+    };
+  }
+
+  async createContractExecutionChallenge(input: {
+    userToken: string;
+    walletId: string;
+    contractAddress: string;
+    callData: string;
+    refId?: string;
+  }) {
+    const result = await this.circleFetch<CircleTransferChallengeData>("/v1/w3s/user/transactions/contractExecution", {
+      method: "POST",
+      body: JSON.stringify({
+        idempotencyKey: randomUUID(),
+        walletId: input.walletId,
+        contractAddress: input.contractAddress,
+        callData: input.callData,
+        feeLevel: "MEDIUM",
+        ...(input.refId ? { refId: input.refId } : {}),
+      }),
+    }, { userToken: input.userToken });
+
+    if (!result.challengeId) {
+      throw new Error("Circle did not return a contract execution challenge.");
+    }
+
+    return {
+      challengeId: result.challengeId,
     };
   }
 }

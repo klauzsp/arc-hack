@@ -8,6 +8,7 @@ const fastify_1 = __importDefault(require("fastify"));
 const cors_1 = __importDefault(require("@fastify/cors"));
 const zod_1 = require("zod");
 const viem_1 = require("viem");
+const cctp_1 = require("./lib/cctp");
 const repository_1 = require("./repository");
 const authService_1 = require("./services/authService");
 const chainService_1 = require("./services/chainService");
@@ -132,7 +133,15 @@ const circleWalletSessionSchema = zod_1.z.object({
 const circleWalletTransferSchema = circleWalletSessionSchema.extend({
     destinationAddress: zod_1.z.string().min(1),
     amount: zod_1.z.string().min(1),
+    destinationPreference: zod_1.z.string().min(1).optional(),
 });
+const erc20ApproveAbi = (0, viem_1.parseAbi)([
+    "function approve(address spender, uint256 amount) returns (bool)",
+]);
+const tokenMessengerAbi = (0, viem_1.parseAbi)([
+    "function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold)",
+    "function depositForBurnWithHook(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold, bytes hookData)",
+]);
 async function getSessionOrThrow(request, authService, requiredRole) {
     const authorization = request.headers.authorization;
     if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
@@ -159,6 +168,12 @@ function normalizeUsdcAmount(value) {
         throw new HttpError(400, "Amount must be greater than zero.");
     }
     return normalized;
+}
+function bytes32FromAddress(address) {
+    return `0x${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+}
+function usdcBaseUnitsToNumber(value) {
+    return Number(value) / 1_000_000;
 }
 function buildApp(config) {
     const repository = new repository_1.PayrollRepository(config.dbPath);
@@ -275,22 +290,129 @@ function buildApp(config) {
         if (wallet.id !== employee.circleWalletId) {
             repository.updateEmployee(employee.id, { circleWalletId: wallet.id });
         }
-        const transfer = await circleWalletService.createTransferChallenge({
+        const normalizedAmount = normalizeUsdcAmount(body.amount);
+        const normalizedDestinationAddress = body.destinationAddress.toLowerCase();
+        const destinationRoute = (0, cctp_1.getCctpRouteByPreference)(body.destinationPreference ?? "Arc");
+        const amountBaseUnits = (0, viem_1.parseUnits)(normalizedAmount, 6);
+        if (destinationRoute.domain === cctp_1.ARC_TESTNET_CCTP_DOMAIN) {
+            const transfer = await circleWalletService.createTransferChallenge({
+                userToken: body.userToken,
+                walletId: wallet.id,
+                destinationAddress: normalizedDestinationAddress,
+                amount: normalizedAmount,
+                refId: `arc-payroll-transfer-${employee.id}-${Date.now()}`,
+            });
+            return {
+                kind: "same_chain_transfer",
+                walletAddress,
+                walletId: wallet.id,
+                challengeId: transfer.challengeId,
+                blockchain: transfer.blockchain,
+                tokenAddress: transfer.tokenAddress,
+                symbol: transfer.symbol,
+                sourceChain: "Arc Testnet",
+                destinationChain: destinationRoute.displayName,
+                destinationDomain: destinationRoute.domain,
+                destinationAddress: normalizedDestinationAddress,
+                approvalTargetAddress: null,
+                amount: Number(normalizedAmount),
+                estimatedReceivedAmount: Number(normalizedAmount),
+                maxFee: 0,
+                transferSpeed: "instant",
+            };
+        }
+        const sourceRoute = (0, cctp_1.getCctpRouteByPreference)("Arc");
+        const finalityThreshold = sourceRoute.fastSourceSupported
+            ? cctp_1.CCTP_FAST_FINALITY_THRESHOLD
+            : cctp_1.CCTP_SLOW_FINALITY_THRESHOLD;
+        const transferSpeed = sourceRoute.fastSourceSupported ? "fast" : "standard";
+        const useForwarder = destinationRoute.forwarderSupported;
+        const approvalTargetAddress = sourceRoute.tokenMessengerV2.toLowerCase();
+        const allowance = await circleWalletService.getUsdcAllowance(walletAddress, approvalTargetAddress);
+        if (allowance < amountBaseUnits) {
+            const approvalChallenge = await circleWalletService.createContractExecutionChallenge({
+                userToken: body.userToken,
+                walletId: wallet.id,
+                contractAddress: sourceRoute.usdcAddress,
+                callData: (0, viem_1.encodeFunctionData)({
+                    abi: erc20ApproveAbi,
+                    functionName: "approve",
+                    args: [sourceRoute.tokenMessengerV2, viem_1.maxUint256],
+                }),
+                refId: `arc-payroll-cctp-approve-${employee.id}-${Date.now()}`,
+            });
+            return {
+                kind: "cctp_approval",
+                walletAddress,
+                walletId: wallet.id,
+                challengeId: approvalChallenge.challengeId,
+                blockchain: sourceRoute.displayName,
+                tokenAddress: sourceRoute.usdcAddress,
+                symbol: "USDC",
+                sourceChain: sourceRoute.displayName,
+                destinationChain: destinationRoute.displayName,
+                destinationDomain: destinationRoute.domain,
+                destinationAddress: normalizedDestinationAddress,
+                approvalTargetAddress,
+                amount: Number(normalizedAmount),
+                estimatedReceivedAmount: Number(normalizedAmount),
+                maxFee: 0,
+                transferSpeed,
+            };
+        }
+        const maxFeeBaseUnits = config.chainMode === "live" && useForwarder
+            ? await (0, cctp_1.fetchForwardingFee)(sourceRoute.domain, destinationRoute.domain, destinationRoute.isTestnet, finalityThreshold)
+            : 0n;
+        if (maxFeeBaseUnits >= amountBaseUnits) {
+            throw new HttpError(400, "Amount is too small after CCTP forwarding fees.");
+        }
+        const contractExecutionChallenge = await circleWalletService.createContractExecutionChallenge({
             userToken: body.userToken,
             walletId: wallet.id,
-            destinationAddress: body.destinationAddress.toLowerCase(),
-            amount: normalizeUsdcAmount(body.amount),
-            refId: `arc-payroll-transfer-${employee.id}-${Date.now()}`,
+            contractAddress: sourceRoute.tokenMessengerV2,
+            callData: (0, viem_1.encodeFunctionData)({
+                abi: tokenMessengerAbi,
+                functionName: useForwarder ? "depositForBurnWithHook" : "depositForBurn",
+                args: useForwarder
+                    ? [
+                        amountBaseUnits,
+                        destinationRoute.domain,
+                        bytes32FromAddress(normalizedDestinationAddress),
+                        sourceRoute.usdcAddress,
+                        `0x${"0".repeat(64)}`,
+                        maxFeeBaseUnits,
+                        finalityThreshold,
+                        cctp_1.CCTP_FORWARDING_HOOK_DATA,
+                    ]
+                    : [
+                        amountBaseUnits,
+                        destinationRoute.domain,
+                        bytes32FromAddress(normalizedDestinationAddress),
+                        sourceRoute.usdcAddress,
+                        `0x${"0".repeat(64)}`,
+                        maxFeeBaseUnits,
+                        finalityThreshold,
+                    ],
+            }),
+            refId: `arc-payroll-cctp-transfer-${employee.id}-${Date.now()}`,
         });
         return {
+            kind: "cctp_transfer",
             walletAddress,
             walletId: wallet.id,
-            challengeId: transfer.challengeId,
-            blockchain: transfer.blockchain,
-            tokenAddress: transfer.tokenAddress,
-            symbol: transfer.symbol,
-            destinationAddress: body.destinationAddress.toLowerCase(),
-            amount: Number(body.amount),
+            challengeId: contractExecutionChallenge.challengeId,
+            blockchain: sourceRoute.displayName,
+            tokenAddress: sourceRoute.usdcAddress,
+            symbol: "USDC",
+            sourceChain: sourceRoute.displayName,
+            destinationChain: destinationRoute.displayName,
+            destinationDomain: destinationRoute.domain,
+            destinationAddress: normalizedDestinationAddress,
+            approvalTargetAddress,
+            amount: Number(normalizedAmount),
+            estimatedReceivedAmount: Number(normalizedAmount) - usdcBaseUnitsToNumber(maxFeeBaseUnits),
+            maxFee: usdcBaseUnitsToNumber(maxFeeBaseUnits),
+            transferSpeed,
         };
     });
     app.get("/dashboard", async () => payrollService.getDashboardSummary());

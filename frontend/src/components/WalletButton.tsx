@@ -10,7 +10,7 @@ function shortAddress(address: string) {
 }
 
 export function WalletButton() {
-  const { token, role, sessionKind } = useAuthSession();
+  const { token, role, sessionKind, signOut } = useAuthSession();
 
   return (
     <ConnectButton.Custom>
@@ -33,16 +33,48 @@ export function WalletButton() {
         return (
           <div className="flex items-center gap-2">
             {!connected && token && sessionKind === "employee" ? (
-              <Link
-                href="/sign-in"
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-              >
+              <>
+                <Link
+                  href="/sign-in"
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
                   <span className="h-2 w-2 rounded-full bg-emerald-500" />
                   Employee Session
                   <span className="hidden text-xs uppercase text-slate-400 sm:inline">
                     {role ?? "Connected"}
                   </span>
-              </Link>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => signOut()}
+                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : !connected && token && sessionKind === "wallet" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    openConnectModal();
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  Reconnect Wallet
+                  <span className="hidden text-xs uppercase text-slate-400 sm:inline">
+                    {role ?? "Signed In"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => signOut()}
+                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  Sign Out
+                </button>
+              </>
             ) : !connected ? (
               <Link
                 href="/sign-in"
@@ -51,15 +83,26 @@ export function WalletButton() {
                 Sign In
               </Link>
             ) : wrongChain ? (
-              <button
-                type="button"
-                onClick={() => {
-                  openChainModal();
-                }}
-                className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-amber-600"
-              >
-                Switch to Arc
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    openChainModal();
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-amber-600"
+                >
+                  Switch to Arc
+                </button>
+                {token ? (
+                  <button
+                    type="button"
+                    onClick={() => signOut()}
+                    className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                  >
+                    Sign Out
+                  </button>
+                ) : null}
+              </>
             ) : !token ? (
               <Link
                 href="/sign-in"
@@ -68,19 +111,28 @@ export function WalletButton() {
                 Finish Sign In
               </Link>
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  openAccountModal();
-                }}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-              >
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                {shortAddress(account.address)}
-                <span className="hidden text-xs uppercase text-slate-400 sm:inline">
-                  {role ?? chain.name ?? "Connected"}
-                </span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    openAccountModal();
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  {shortAddress(account.address)}
+                  <span className="hidden text-xs uppercase text-slate-400 sm:inline">
+                    {role ?? chain.name ?? "Connected"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => signOut()}
+                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+                >
+                  Sign Out
+                </button>
+              </>
             )}
           </div>
         );
