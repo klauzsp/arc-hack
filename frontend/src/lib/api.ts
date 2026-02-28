@@ -1,8 +1,8 @@
-import type { PayRun, Recipient, Schedule, TimeEntry } from "./mockTypes";
+import type { PayRun, Recipient, Schedule, TimeEntry } from "./types";
+import { publicConfig } from "./publicConfig";
 import type { Role } from "./role";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:3001";
+const API_BASE_URL = publicConfig.apiUrl.replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(
@@ -98,6 +98,13 @@ export interface TreasuryResponse {
     rebalanceThreshold: number;
     payoutNoticeHours: number;
   };
+  source?: "db" | "chain";
+  treasuryAddress?: string | null;
+  controllerAddress?: string | null;
+  usycCustodyAddress?: string | null;
+  payRunAddress?: string | null;
+  rebalanceAddress?: string | null;
+  readError?: string | null;
 }
 
 export interface DashboardSummaryResponse {
@@ -134,7 +141,7 @@ export type RecipientPayload = Omit<Recipient, "id">;
 
 export const api = {
   baseUrl: API_BASE_URL,
-  health: () => request<{ ok: boolean; mode: string }>("/health"),
+  health: () => request<{ ok: boolean; mode: string; stableFxConfigured?: boolean }>("/health"),
   createChallenge: (address: string) =>
     request<AuthChallengeResponse>("/auth/challenge", {
       method: "POST",
@@ -153,6 +160,11 @@ export const api = {
       method: "POST",
       token,
       body: payload,
+    }),
+  deleteRecipient: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/recipients/${id}`, {
+      method: "DELETE",
+      token,
     }),
   updateRecipient: (token: string, id: string, payload: Partial<RecipientPayload>) =>
     request<Recipient>(`/recipients/${id}`, {
@@ -215,6 +227,12 @@ export const api = {
     }),
   executePayRun: (token: string, id: string) =>
     request<PayRun>(`/pay-runs/${id}/execute`, {
+      method: "POST",
+      token,
+      body: {},
+    }),
+  finalizePayRun: (token: string, id: string) =>
+    request<PayRun>(`/pay-runs/${id}/finalize`, {
       method: "POST",
       token,
       body: {},

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { usePayroll } from "@/components/PayrollProvider";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
@@ -34,8 +34,8 @@ function formatDate(value: string) {
 
 export default function PayRunDetailPage() {
   const params = useParams();
-  const { payRuns, recipients, approvePayRun, executePayRun } = useMockPayroll();
-  const [wasExecuted, setWasExecuted] = useState(false);
+  const { payRuns, recipients, approvePayRun, executePayRun, finalizePayRun } = usePayroll();
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const id = params?.id as string;
@@ -70,11 +70,11 @@ export default function PayRunDetailPage() {
         </span>
       </nav>
 
-      {wasExecuted && (
+      {actionMessage && (
         <Card className="border-emerald-200 bg-emerald-50/40 p-4">
-          <p className="text-sm font-semibold text-emerald-800">Pay run executed</p>
+          <p className="text-sm font-semibold text-emerald-800">{actionMessage}</p>
           <p className="mt-0.5 text-xs text-emerald-700">
-            The backend execution updated payout history and employee available balances.
+            Treasury and pay run state were updated live through the backend and contract flow.
           </p>
         </Card>
       )}
@@ -107,6 +107,12 @@ export default function PayRunDetailPage() {
                 })}
               </p>
             )}
+            {payRun.onChainId && (
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-slate-500">On-chain ID:</span>
+                <span className="font-mono">{payRun.onChainId}</span>
+              </p>
+            )}
             {payRun.txHash && (
               <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
                 <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
@@ -124,7 +130,9 @@ export default function PayRunDetailPage() {
                 onClick={() => {
                   setIsSubmitting(true);
                   setActionError(null);
+                  setActionMessage(null);
                   void approvePayRun(payRun.id)
+                    .then(() => setActionMessage("Pay run approved and created on-chain."))
                     .catch((error: unknown) => {
                       setActionError(error instanceof Error ? error.message : "Failed to approve pay run.");
                     })
@@ -142,8 +150,15 @@ export default function PayRunDetailPage() {
                 onClick={() => {
                   setIsSubmitting(true);
                   setActionError(null);
+                  setActionMessage(null);
                   void executePayRun(payRun.id)
-                    .then(() => setWasExecuted(true))
+                    .then((result) =>
+                      setActionMessage(
+                        result.status === "processing"
+                          ? "Pay run executed from treasury. Cross-chain payouts are now processing."
+                          : "Pay run executed from treasury.",
+                      ),
+                    )
                     .catch((error: unknown) => {
                       setActionError(error instanceof Error ? error.message : "Failed to execute pay run.");
                     })
@@ -155,6 +170,26 @@ export default function PayRunDetailPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 {isSubmitting ? "Executing…" : "Execute Pay Run"}
+              </button>
+            )}
+            {payRun.status === "processing" && (
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => {
+                  setIsSubmitting(true);
+                  setActionError(null);
+                  setActionMessage(null);
+                  void finalizePayRun(payRun.id)
+                    .then(() => setActionMessage("Cross-chain treasury pay run finalized."))
+                    .catch((error: unknown) => {
+                      setActionError(error instanceof Error ? error.message : "Failed to finalize pay run.");
+                    })
+                    .finally(() => setIsSubmitting(false));
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+              >
+                {isSubmitting ? "Finalizing…" : "Finalize Pay Run"}
               </button>
             )}
           </div>

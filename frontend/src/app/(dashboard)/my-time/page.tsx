@@ -1,7 +1,7 @@
 "use client";
 
 import { useAccount } from "wagmi";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
@@ -46,7 +46,7 @@ export default function MyTimePage() {
     clockOut,
     loading,
     error,
-  } = useMockPayroll();
+  } = usePayroll();
 
   const connectedRecipient = getRecipientByWallet(address);
   const isAdmin = role === "admin";

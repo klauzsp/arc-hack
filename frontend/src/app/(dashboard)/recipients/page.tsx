@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
-import type { PayType, Recipient, TimeTrackingMode } from "@/lib/mockTypes";
+import { usePayroll } from "@/components/PayrollProvider";
+import type { PayType, Recipient, TimeTrackingMode } from "@/lib/types";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 
@@ -47,10 +47,12 @@ function formatCurrency(value: number) {
 }
 
 export default function RecipientsPage() {
-  const { recipients, schedules, addRecipient, updateRecipient, getRecipientMetrics, loading, error } = useMockPayroll();
+  const { recipients, schedules, addRecipient, updateRecipient, deleteRecipient, getRecipientMetrics, loading, error } = usePayroll();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipient);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -62,6 +64,7 @@ export default function RecipientsPage() {
 
   const openAddForm = () => {
     setMessage(null);
+    setDeleteError(null);
     setEditingId(null);
     setFormState(emptyRecipient);
     setShowForm(true);
@@ -69,6 +72,7 @@ export default function RecipientsPage() {
 
   const openEditForm = (recipient: Recipient) => {
     setMessage(null);
+    setDeleteError(null);
     setEditingId(recipient.id);
     setFormState({
       walletAddress: recipient.walletAddress,
@@ -85,6 +89,7 @@ export default function RecipientsPage() {
   const saveRecipient = async () => {
     if (!formState.name.trim() || !formState.walletAddress.trim()) return;
     setIsSaving(true);
+    setDeleteError(null);
     try {
       if (editingId) {
         await updateRecipient(editingId, formState);
@@ -96,6 +101,26 @@ export default function RecipientsPage() {
       resetForm();
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDeleteRecipient = async (recipient: Recipient) => {
+    const confirmed = window.confirm(
+      `Delete ${recipient.name} from active recipients?\n\nThis keeps historical pay run records intact but removes the recipient from future treasury pay runs.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(recipient.id);
+    setDeleteError(null);
+    setMessage(null);
+    try {
+      await deleteRecipient(recipient.id);
+      if (editingId === recipient.id) resetForm();
+      setMessage("Recipient deleted.");
+    } catch (deleteActionError) {
+      setDeleteError(deleteActionError instanceof Error ? deleteActionError.message : "Failed to delete recipient.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -132,6 +157,12 @@ export default function RecipientsPage() {
       {error && (
         <Card className="border-red-200 bg-red-50/40 p-4">
           <p className="text-sm font-semibold text-red-800">{error}</p>
+        </Card>
+      )}
+
+      {deleteError && (
+        <Card className="border-red-200 bg-red-50/40 p-4">
+          <p className="text-sm font-semibold text-red-800">{deleteError}</p>
         </Card>
       )}
 
@@ -287,6 +318,16 @@ export default function RecipientsPage() {
                         className="rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
                       >
                         Edit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingId === recipient.id}
+                        onClick={() => {
+                          void handleDeleteRecipient(recipient);
+                        }}
+                        className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        {deletingId === recipient.id ? "Deleting…" : "Delete"}
                       </button>
                     </td>
                   </tr>

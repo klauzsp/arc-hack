@@ -2,7 +2,7 @@
 
 import { useAccount } from "wagmi";
 import { useState } from "react";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
@@ -13,13 +13,55 @@ function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
+function Toggle({
+  enabled,
+  disabled,
+  label,
+  description,
+  onToggle,
+}: {
+  enabled: boolean;
+  disabled: boolean;
+  label: string;
+  description: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      className="flex w-full items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-50"
+    >
+      <div>
+        <p className="text-sm font-semibold text-slate-900">{label}</p>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </div>
+      <span
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          enabled ? "bg-emerald-600" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+            enabled ? "translate-x-5" : "translate-x-1"
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
 export default function TreasuryPage() {
   const { isConnected, address } = useAccount();
   const { role } = useAuthSession();
-  const { treasury, loading, error, rebalanceTreasury } = useMockPayroll();
+  const { treasury, loading, error, rebalanceTreasury, updateAutoPolicy } = usePayroll();
   const [rebalanceMessage, setRebalanceMessage] = useState<string | null>(null);
   const [rebalanceError, setRebalanceError] = useState<string | null>(null);
   const [isRebalancing, setIsRebalancing] = useState(false);
+  const [isSavingPolicy, setIsSavingPolicy] = useState(false);
+  const [policyMessage, setPolicyMessage] = useState<string | null>(null);
+  const [policyError, setPolicyError] = useState<string | null>(null);
   const isCeo = role === "admin";
 
   if (loading && !treasury) {
@@ -30,12 +72,66 @@ export default function TreasuryPage() {
   const totalUsdc = treasury?.totalUsdc ?? 0;
   const totalUsyc = treasury?.totalUsyc ?? 0;
   const autoPolicy = treasury?.autoPolicy;
+  const showFallbackWarning = Boolean(treasury?.readError);
+
+  const togglePolicy = async (
+    field: "autoRebalanceEnabled" | "autoRedeemEnabled",
+    nextValue: boolean,
+    label: string,
+  ) => {
+    setIsSavingPolicy(true);
+    setPolicyError(null);
+    setPolicyMessage(null);
+    try {
+      await updateAutoPolicy({ [field]: nextValue });
+      setPolicyMessage(`${label} ${nextValue ? "enabled" : "disabled"}.`);
+    } catch (toggleError) {
+      setPolicyError(toggleError instanceof Error ? toggleError.message : "Failed to update policy.");
+    } finally {
+      setIsSavingPolicy(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
       <p className="text-sm text-slate-500">
-        Multi-chain USDC treasury with automated yield optimization through USYC.
+        Treasury funds live in the Core contract on Arc Testnet. The CEO can fund the treasury from the wallet, move idle reserves through the Teller-backed USYC flow, and payroll executes out of treasury.
       </p>
+
+      <Card className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Treasury Wiring</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Live mode uses the deployed Arc contracts and on-chain balances. USYC custody currently sits with the CEO wallet because the Teller flow is wallet-whitelisted.
+            </p>
+          </div>
+          <Badge variant={treasury?.source === "chain" ? "success" : "default"}>
+            {treasury?.source === "chain" ? "On-chain" : "Backend snapshot"}
+          </Badge>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Core Treasury</p>
+            <p className="mt-2 break-all text-sm font-semibold text-slate-900">{treasury?.treasuryAddress ?? "—"}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Controller</p>
+            <p className="mt-2 break-all text-sm font-semibold text-slate-900">{treasury?.controllerAddress ?? "—"}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">USYC Custody</p>
+            <p className="mt-2 break-all text-sm font-semibold text-slate-900">{treasury?.usycCustodyAddress ?? "—"}</p>
+          </div>
+        </div>
+      </Card>
+
+      {showFallbackWarning && (
+        <Card className="border-amber-200 bg-amber-50/60 p-4">
+          <p className="text-sm font-semibold text-amber-800">Live treasury read failed. Showing stored snapshot data instead.</p>
+          <p className="mt-1 break-words text-xs text-amber-700">{treasury?.readError}</p>
+        </Card>
+      )}
 
       {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -86,6 +182,41 @@ export default function TreasuryPage() {
             {autoPolicy?.autoRebalanceEnabled ? "Active" : "Paused"}
           </Badge>
         </div>
+        {role === "admin" && autoPolicy && (
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <Toggle
+              enabled={autoPolicy.autoRebalanceEnabled}
+              disabled={isSavingPolicy}
+              label="Auto rebalance idle USDC"
+              description="Move idle treasury USDC into USYC when balances sit above the configured threshold."
+              onToggle={() => {
+                void togglePolicy(
+                  "autoRebalanceEnabled",
+                  !autoPolicy.autoRebalanceEnabled,
+                  "Auto rebalance",
+                );
+              }}
+            />
+            <Toggle
+              enabled={autoPolicy.autoRedeemEnabled}
+              disabled={isSavingPolicy}
+              label="Auto redeem for payroll"
+              description="Redeem CEO-managed USYC back into treasury USDC when payroll needs liquidity."
+              onToggle={() => {
+                void togglePolicy(
+                  "autoRedeemEnabled",
+                  !autoPolicy.autoRedeemEnabled,
+                  "Auto redeem",
+                );
+              }}
+            />
+          </div>
+        )}
+        {(policyError || policyMessage) && (
+          <p className={`mt-3 text-sm font-medium ${policyError ? "text-red-700" : "text-emerald-700"}`}>
+            {policyError || policyMessage}
+          </p>
+        )}
       </Card>
 
       {(error || rebalanceError || rebalanceMessage) && (
@@ -132,7 +263,7 @@ export default function TreasuryPage() {
             <div>
               <h3 className="text-sm font-semibold text-slate-900">Manual Treasury Actions</h3>
               <p className="mt-1 text-xs text-slate-500">
-                Trigger backend-driven USDC and USYC rebalancing against the treasury policy.
+                Trigger backend-driven conversions using the same CEO wallet Teller flow that the live treasury UI uses.
               </p>
             </div>
             <div className="flex gap-2">

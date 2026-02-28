@@ -133,7 +133,11 @@ export function buildApp(config: AppConfig) {
     reply.status(500).send({ error: "Internal server error" });
   });
 
-  app.get("/health", async () => ({ ok: true, mode: config.chainMode }));
+  app.get("/health", async () => ({
+    ok: true,
+    mode: config.chainMode,
+    stableFxConfigured: Boolean(config.liveChain?.stableFxApiKey),
+  }));
 
   app.post("/auth/challenge", async (request) => {
     const body = z.object({ address: z.string().min(1) }).parse(request.body ?? {});
@@ -282,9 +286,14 @@ export function buildApp(config: AppConfig) {
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     return payrollService.executePayRun(params.id);
   });
+  app.post("/pay-runs/:id/finalize", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    return payrollService.finalizePayRun(params.id);
+  });
 
   app.get("/treasury/balances", async () => payrollService.getTreasury());
-  app.get("/treasury/auto-policy", async () => payrollService.getTreasury().autoPolicy);
+  app.get("/treasury/auto-policy", async () => (await payrollService.getTreasury()).autoPolicy);
   app.post("/treasury/auto-policy", async (request) => {
     await getSessionOrThrow(request, authService, "admin");
     return payrollService.updateAutoPolicy(autoPolicySchema.parse(request.body ?? {}));

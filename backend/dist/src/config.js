@@ -19,26 +19,39 @@ function parseBoolean(value, fallback) {
 function loadConfig(env = process.env) {
     const chainMode = (env.CHAIN_MODE?.toLowerCase() === "live" ? "live" : "mock");
     const defaultDbPath = node_path_1.default.resolve(process.cwd(), "backend", "data", "payroll.sqlite");
+    const defaultArcRpcUrl = "https://rpc.testnet.arc.network";
+    const dbPath = env.BACKEND_DB_PATH === ":memory:"
+        ? ":memory:"
+        : env.BACKEND_DB_PATH
+            ? node_path_1.default.resolve(env.BACKEND_DB_PATH)
+            : defaultDbPath;
     const config = {
         host: env.BACKEND_HOST ?? "127.0.0.1",
         port: parseNumber(env.BACKEND_PORT, 3001),
         corsOrigin: env.BACKEND_CORS_ORIGIN ?? "http://localhost:3000",
-        dbPath: env.BACKEND_DB_PATH ? node_path_1.default.resolve(env.BACKEND_DB_PATH) : defaultDbPath,
+        dbPath,
         sessionTtlHours: parseNumber(env.BACKEND_SESSION_TTL_HOURS, 24),
         companyId: env.BACKEND_COMPANY_ID ?? "company-arc",
         companyName: env.BACKEND_COMPANY_NAME ?? "Arc Payroll Demo",
         adminWallet: (env.BACKEND_ADMIN_WALLET ?? "0x13e00D9810d3C8Dc19A8C9A172fd9A8aC56e94e0").toLowerCase(),
         seedDate: env.BACKEND_SEED_DATE ?? "2026-02-28",
         jobsEnabled: parseBoolean(env.BACKEND_JOBS_ENABLED, false),
-        arcChainId: parseNumber(env.BACKEND_ARC_CHAIN_ID, 10_001),
+        arcChainId: parseNumber(env.BACKEND_ARC_CHAIN_ID, 5_042_002),
         chainMode,
     };
     if (chainMode === "live") {
-        const rpcUrl = env.BACKEND_RPC_URL;
+        const rpcUrl = env.BACKEND_RPC_URL ?? env.NEXT_PUBLIC_ARC_RPC_URL ?? defaultArcRpcUrl;
         const privateKey = env.BACKEND_PRIVATE_KEY;
         const coreAddress = env.BACKEND_CORE_ADDRESS;
         const payRunAddress = env.BACKEND_PAYRUN_ADDRESS;
         const rebalanceAddress = env.BACKEND_REBALANCE_ADDRESS;
+        const usdcAddress = (env.BACKEND_USDC_ADDRESS ??
+            "0x3600000000000000000000000000000000000000");
+        const usycAddress = (env.BACKEND_USYC_ADDRESS ??
+            "0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C");
+        const usycTellerAddress = (env.BACKEND_USYC_TELLER_ADDRESS ??
+            "0x9fdF14c5B14173D74C08Af27AebFf39240dC105A");
+        const stableFxApiKey = env.STABLE_FX_API_KEY?.trim() || undefined;
         if (!rpcUrl || !privateKey || !coreAddress || !payRunAddress || !rebalanceAddress) {
             throw new Error("Live chain mode requires BACKEND_RPC_URL, BACKEND_PRIVATE_KEY, BACKEND_CORE_ADDRESS, BACKEND_PAYRUN_ADDRESS, and BACKEND_REBALANCE_ADDRESS.");
         }
@@ -48,6 +61,10 @@ function loadConfig(env = process.env) {
             coreAddress,
             payRunAddress,
             rebalanceAddress,
+            usdcAddress,
+            usycAddress,
+            usycTellerAddress,
+            stableFxApiKey,
         };
     }
     return config;

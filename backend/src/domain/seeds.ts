@@ -1,5 +1,5 @@
-import { addDays, currentSemimonthlyPeriod, endOfMonth, yearStart } from "../lib/dates";
-import { buildHourlyEntries, buildPayRunItemsPreview, chainIdFromPreference } from "./payroll";
+import { addDays, yearStart } from "../lib/dates";
+import { buildHourlyEntries, chainIdFromPreference } from "./payroll";
 import type {
   CompanyRecord,
   EmployeeRecord,
@@ -33,7 +33,6 @@ export function createSeedPayload(input: {
   const { companyId, companyName, today, arcChainId } = input;
   const year = Number(today.slice(0, 4));
   const ytdStart = yearStart(today);
-  const { periodStart: currentPeriodStart, periodEnd: currentPeriodEnd } = currentSemimonthlyPeriod(today);
 
   const company: CompanyRecord = {
     id: companyId,
@@ -209,106 +208,8 @@ export function createSeedPayload(input: {
     createdAt: `${entry.date}T${entry.clockIn}:00.000Z`,
   }));
 
-  const januaryFirstHalf = `${year}-01-01`;
-  const januaryFirstEnd = `${year}-01-15`;
-  const januarySecondHalf = `${year}-01-16`;
-  const januarySecondEnd = `${year}-01-31`;
-  const febFirstHalf = `${year}-02-01`;
-  const febFirstEnd = `${year}-02-15`;
-  const nextPeriodStart = addDays(currentPeriodEnd, 1);
-  const nextPeriodEnd = Number(nextPeriodStart.slice(8, 10)) <= 15 ? `${year}-${nextPeriodStart.slice(5, 7)}-15` : endOfMonth(nextPeriodStart);
-
-  const payRunBlueprints = [
-    {
-      id: "pr-1",
-      periodStart: januaryFirstHalf,
-      periodEnd: januaryFirstEnd,
-      status: "executed" as const,
-      txHash: "0x7a3fe12d7a3fe12d7a3fe12d7a3fe12d7a3fe12d",
-      executedAt: `${year}-01-16T09:30:00.000Z`,
-    },
-    {
-      id: "pr-2",
-      periodStart: januarySecondHalf,
-      periodEnd: januarySecondEnd,
-      status: "executed" as const,
-      txHash: "0x9bc48f2e9bc48f2e9bc48f2e9bc48f2e9bc48f2e",
-      executedAt: `${year}-02-01T10:15:00.000Z`,
-    },
-    {
-      id: "pr-3",
-      periodStart: febFirstHalf,
-      periodEnd: febFirstEnd,
-      status: "executed" as const,
-      txHash: "0xabc13d4eabc13d4eabc13d4eabc13d4eabc13d4e",
-      executedAt: `${year}-02-16T10:00:00.000Z`,
-    },
-    {
-      id: "pr-4",
-      periodStart: currentPeriodStart,
-      periodEnd: currentPeriodEnd,
-      status: "approved" as const,
-      txHash: null,
-      executedAt: null,
-    },
-    {
-      id: "pr-5",
-      periodStart: nextPeriodStart,
-      periodEnd: nextPeriodEnd,
-      status: "draft" as const,
-      txHash: null,
-      executedAt: null,
-    },
-  ];
-
   const payRuns: PayRunRecord[] = [];
   const payRunItems: PayRunItemRecord[] = [];
-
-  for (const blueprint of payRunBlueprints) {
-    const items = buildPayRunItemsPreview(
-      employees,
-      schedules,
-      holidays,
-      timeEntries,
-      blueprint.periodStart,
-      blueprint.periodEnd,
-      today,
-      arcChainId,
-    );
-    const totalAmountCents = items.reduce((total, item) => total + item.amountCents, 0);
-    payRuns.push({
-      id: blueprint.id,
-      companyId,
-      onChainId: `0x${blueprint.id.replace(/[^a-z0-9]/gi, "").padEnd(64, "0")}`,
-      periodStart: blueprint.periodStart,
-      periodEnd: blueprint.periodEnd,
-      status: blueprint.status,
-      totalAmountCents,
-      executedAt: blueprint.executedAt,
-      txHash: blueprint.txHash,
-      createdAt: `${blueprint.periodStart}T08:00:00.000Z`,
-      updatedAt: blueprint.executedAt ?? `${blueprint.periodStart}T08:00:00.000Z`,
-    });
-
-    for (let index = 0; index < items.length; index++) {
-      const item = items[index];
-      payRunItems.push({
-        id: `${blueprint.id}-item-${index + 1}`,
-        payRunId: blueprint.id,
-        employeeId: item.employeeId,
-        recipientWalletAddress: item.recipientWalletAddress,
-        destinationChainId: item.destinationChainId,
-        amountCents: item.amountCents,
-        status:
-          blueprint.status === "executed"
-            ? "paid"
-            : blueprint.status === "approved"
-              ? "ready"
-              : item.status,
-        txHash: blueprint.txHash,
-      });
-    }
-  }
 
   const treasuryBalances: TreasuryBalanceRecord[] = [
     { companyId, chainId: arcChainId, chainName: "Arc", usdcCents: 510_000_00, isHub: true },

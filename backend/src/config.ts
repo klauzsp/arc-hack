@@ -8,6 +8,10 @@ export interface LiveChainConfig {
   coreAddress: `0x${string}`;
   payRunAddress: `0x${string}`;
   rebalanceAddress: `0x${string}`;
+  usdcAddress: `0x${string}`;
+  usycAddress: `0x${string}`;
+  usycTellerAddress: `0x${string}`;
+  stableFxApiKey?: string;
 }
 
 export interface AppConfig {
@@ -40,6 +44,7 @@ function parseBoolean(value: string | undefined, fallback: boolean) {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const chainMode = (env.CHAIN_MODE?.toLowerCase() === "live" ? "live" : "mock") satisfies ChainMode;
   const defaultDbPath = path.resolve(process.cwd(), "backend", "data", "payroll.sqlite");
+  const defaultArcRpcUrl = "https://rpc.testnet.arc.network";
   const dbPath =
     env.BACKEND_DB_PATH === ":memory:"
       ? ":memory:"
@@ -64,11 +69,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   };
 
   if (chainMode === "live") {
-    const rpcUrl = env.BACKEND_RPC_URL;
+    const rpcUrl = env.BACKEND_RPC_URL ?? env.NEXT_PUBLIC_ARC_RPC_URL ?? defaultArcRpcUrl;
     const privateKey = env.BACKEND_PRIVATE_KEY as `0x${string}` | undefined;
     const coreAddress = env.BACKEND_CORE_ADDRESS as `0x${string}` | undefined;
     const payRunAddress = env.BACKEND_PAYRUN_ADDRESS as `0x${string}` | undefined;
     const rebalanceAddress = env.BACKEND_REBALANCE_ADDRESS as `0x${string}` | undefined;
+    const usdcAddress = (env.BACKEND_USDC_ADDRESS ??
+      "0x3600000000000000000000000000000000000000") as `0x${string}`;
+    const usycAddress = (env.BACKEND_USYC_ADDRESS ??
+      "0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C") as `0x${string}`;
+    const usycTellerAddress = (env.BACKEND_USYC_TELLER_ADDRESS ??
+      "0x9fdF14c5B14173D74C08Af27AebFf39240dC105A") as `0x${string}`;
+    const stableFxApiKey = env.STABLE_FX_API_KEY?.trim() || undefined;
 
     if (!rpcUrl || !privateKey || !coreAddress || !payRunAddress || !rebalanceAddress) {
       throw new Error("Live chain mode requires BACKEND_RPC_URL, BACKEND_PRIVATE_KEY, BACKEND_CORE_ADDRESS, BACKEND_PAYRUN_ADDRESS, and BACKEND_REBALANCE_ADDRESS.");
@@ -80,6 +92,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       coreAddress,
       payRunAddress,
       rebalanceAddress,
+      usdcAddress,
+      usycAddress,
+      usycTellerAddress,
+      stableFxApiKey,
     };
   }
 

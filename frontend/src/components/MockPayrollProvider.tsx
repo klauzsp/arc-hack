@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api, type DashboardSummaryResponse, type EarningsResponse, type PolicyResponse, type TreasuryResponse } from "@/lib/api";
-import type { PayRun, Recipient, Schedule, TimeEntry } from "@/lib/mockTypes";
+import type { PayRun, Recipient, Schedule, TimeEntry } from "@/lib/types";
 import { currentPeriodEnd, currentPeriodStart, yearStart } from "@/lib/payPeriods";
 import { useAuthSession } from "./AuthProvider";
 
@@ -41,9 +41,11 @@ type MockPayrollContextValue = {
   getRecipientTimeEntries: (recipientId: string) => TimeEntry[];
   addRecipient: (values: RecipientFormValues) => Promise<Recipient>;
   updateRecipient: (recipientId: string, values: Partial<RecipientFormValues>) => Promise<Recipient>;
+  deleteRecipient: (recipientId: string) => Promise<void>;
   createPayRun: () => Promise<PayRun>;
   approvePayRun: (payRunId: string) => Promise<PayRun>;
   executePayRun: (payRunId: string) => Promise<PayRun>;
+  finalizePayRun: (payRunId: string) => Promise<PayRun>;
   clockIn: (recipientId: string) => Promise<void>;
   clockOut: (recipientId: string) => Promise<void>;
   createPolicy: (input: { name: string; type: "payday" | "treasury_threshold" | "manual"; status?: "active" | "paused"; config?: Record<string, unknown> }) => Promise<PolicySummary>;
@@ -54,7 +56,7 @@ type MockPayrollContextValue = {
 
 const MockPayrollContext = createContext<MockPayrollContextValue | null>(null);
 
-export function MockPayrollProvider({ children }: { children: React.ReactNode }) {
+export function PayrollProvider({ children }: { children: React.ReactNode }) {
   const { token, role, employee } = useAuthSession();
   const [dashboard, setDashboard] = useState<DashboardSummaryResponse | null>(null);
   const [treasury, setTreasury] = useState<TreasuryResponse | null>(null);
@@ -226,16 +228,22 @@ export function MockPayrollProvider({ children }: { children: React.ReactNode })
     return updated;
   };
 
+  const deleteRecipient = async (recipientId: string) => {
+    if (!token) throw new Error("Admin session required.");
+    await api.deleteRecipient(token, recipientId);
+    await refresh();
+  };
+
   const createPayRun = async () => {
     if (!token) throw new Error("Admin session required.");
     const latest = payRuns[0];
-    const baseDate = latest?.periodEnd ? latest.periodEnd : today;
-    const nextPeriodStart = currentPeriodEnd(baseDate) === baseDate
-      ? new Date(`${baseDate}T12:00:00Z`)
-      : new Date(`${today}T12:00:00Z`);
-    const nextStart = new Date(nextPeriodStart);
-    nextStart.setUTCDate(nextStart.getUTCDate() + 1);
-    const nextPeriodStartIso = nextStart.toISOString().slice(0, 10);
+    const nextPeriodStartIso = latest
+      ? (() => {
+          const nextStart = new Date(`${latest.periodEnd}T12:00:00Z`);
+          nextStart.setUTCDate(nextStart.getUTCDate() + 1);
+          return nextStart.toISOString().slice(0, 10);
+        })()
+      : currentPeriodStart(today);
     const created = await api.createPayRun(token, {
       periodStart: nextPeriodStartIso,
       periodEnd: currentPeriodEnd(nextPeriodStartIso),
@@ -254,6 +262,13 @@ export function MockPayrollProvider({ children }: { children: React.ReactNode })
   const executePayRun = async (payRunId: string) => {
     if (!token) throw new Error("Admin session required.");
     const payRun = await api.executePayRun(token, payRunId);
+    await refresh();
+    return payRun;
+  };
+
+  const finalizePayRun = async (payRunId: string) => {
+    if (!token) throw new Error("Admin session required.");
+    const payRun = await api.finalizePayRun(token, payRunId);
     await refresh();
     return payRun;
   };
@@ -332,9 +347,11 @@ export function MockPayrollProvider({ children }: { children: React.ReactNode })
         getRecipientTimeEntries,
         addRecipient,
         updateRecipient,
+        deleteRecipient,
         createPayRun,
         approvePayRun,
         executePayRun,
+        finalizePayRun,
         clockIn,
         clockOut,
         createPolicy,
@@ -348,10 +365,13 @@ export function MockPayrollProvider({ children }: { children: React.ReactNode })
   );
 }
 
-export function useMockPayroll() {
+export function usePayroll() {
   const context = useContext(MockPayrollContext);
   if (!context) {
-    throw new Error("useMockPayroll must be used within MockPayrollProvider");
+    throw new Error("usePayroll must be used within PayrollProvider");
   }
   return context;
 }
+
+export const MockPayrollProvider = PayrollProvider;
+export const useMockPayroll = usePayroll;

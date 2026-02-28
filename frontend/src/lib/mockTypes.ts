@@ -44,6 +44,7 @@ export interface PayRunItem {
 
 export interface PayRun {
   id: string;
+  onChainId?: string | null;
   periodStart: string;
   periodEnd: string;
   status: PayRunStatus;

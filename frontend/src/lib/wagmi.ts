@@ -1,10 +1,34 @@
-import { createConfig, createStorage, http, injected, noopStorage } from "wagmi";
+import { createConfig, createStorage, http, noopStorage } from "wagmi";
+import { injected, metaMask } from "wagmi/connectors";
+import { connectorsForWallets } from "@rainbow-me/rainbowkit";
+import { injectedWallet, metaMaskWallet, walletConnectWallet } from "@rainbow-me/rainbowkit/wallets";
 import { foundry } from "viem/chains";
 import { arcTestnet } from "./contracts";
+import { publicConfig } from "./publicConfig";
 
-const connectors = [
-  injected(),
-];
+const connectors =
+  typeof window === "undefined"
+    ? [metaMask(), injected()]
+    : [
+        ...connectorsForWallets(
+          [
+            {
+              groupName: "Recommended",
+              wallets: [
+                metaMaskWallet,
+                ...(publicConfig.walletConnectProjectId ? [walletConnectWallet] : []),
+                injectedWallet,
+              ],
+            },
+          ],
+          {
+            projectId: publicConfig.walletConnectProjectId ?? "missing-walletconnect-project-id",
+            appName: "Arc Payroll",
+            appDescription: "Arc payroll dashboard",
+            appUrl: publicConfig.appUrl,
+          },
+        ),
+      ];
 
 export const config = createConfig({
   chains: [arcTestnet, foundry],
@@ -17,7 +41,7 @@ export const config = createConfig({
         : noopStorage,
   }),
   transports: {
-    [arcTestnet.id]: http(arcTestnet.rpcUrls.default.http[0]),
+    [arcTestnet.id]: http(publicConfig.arcRpcUrl),
     [foundry.id]: http(),
   },
 });

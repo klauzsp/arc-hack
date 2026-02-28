@@ -1,7 +1,25 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { buildApp } from "./app";
 import { loadConfig } from "./config";
 
+function loadLocalEnvFiles() {
+  const envFiles = [
+    path.resolve(process.cwd(), ".env"),
+    path.resolve(process.cwd(), ".env.local"),
+    path.resolve(process.cwd(), "backend", ".env"),
+    path.resolve(process.cwd(), "backend", ".env.local"),
+  ];
+
+  for (const envFile of envFiles) {
+    if (existsSync(envFile)) {
+      process.loadEnvFile(envFile);
+    }
+  }
+}
+
 async function main() {
+  loadLocalEnvFiles();
   const config = loadConfig();
   const { app, services } = buildApp(config);
 

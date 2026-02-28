@@ -72,6 +72,7 @@ test("admin can create, approve, and execute a pay run", async () => {
   });
   assert.equal(approveResponse.statusCode, 200);
   assert.equal(approveResponse.json().status, "approved");
+  assert.ok(typeof approveResponse.json().onChainId === "string");
 
   const executeResponse = await app.inject({
     method: "POST",
@@ -79,9 +80,42 @@ test("admin can create, approve, and execute a pay run", async () => {
     headers: { authorization: "Bearer admin-token" },
   });
   assert.equal(executeResponse.statusCode, 200);
-  const executedPayRun = executeResponse.json();
-  assert.equal(executedPayRun.status, "executed");
+  const executedPayRun = executeResponse.json() as { status: string; txHash?: string };
+  assert.ok(["executed", "processing"].includes(executedPayRun.status));
   assert.ok(typeof executedPayRun.txHash === "string");
+
+  if (executedPayRun.status === "processing") {
+    const finalizeResponse = await app.inject({
+      method: "POST",
+      url: `/pay-runs/${createdPayRun.id}/finalize`,
+      headers: { authorization: "Bearer admin-token" },
+    });
+    assert.equal(finalizeResponse.statusCode, 200);
+    assert.equal(finalizeResponse.json().status, "executed");
+  }
+
+  await app.close();
+});
+
+test("admin can deactivate a recipient from the live recipient list", async () => {
+  const { app, employee } = createTestHarness();
+
+  const deleteResponse = await app.inject({
+    method: "DELETE",
+    url: `/recipients/${employee.id}`,
+    headers: { authorization: "Bearer admin-token" },
+  });
+  assert.equal(deleteResponse.statusCode, 200);
+  assert.equal(deleteResponse.json().ok, true);
+
+  const recipientsResponse = await app.inject({
+    method: "GET",
+    url: "/recipients",
+    headers: { authorization: "Bearer admin-token" },
+  });
+  assert.equal(recipientsResponse.statusCode, 200);
+  const recipients = recipientsResponse.json() as Array<{ id: string }>;
+  assert.equal(recipients.some((recipient) => recipient.id === employee.id), false);
 
   await app.close();
 });

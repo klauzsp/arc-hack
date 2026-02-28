@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 import { api, ApiError } from "@/lib/api";
-import type { Recipient } from "@/lib/mockTypes";
+import type { Recipient } from "@/lib/types";
 import type { Role } from "@/lib/role";
 
 const STORAGE_KEY = "arc-payroll-session";

@@ -1,4 +1,5 @@
 import { defineChain, type Address } from "viem";
+import { publicConfig } from "./publicConfig";
 
 export const ARC_TESTNET_CHAIN_ID = 5042002;
 
@@ -12,7 +13,7 @@ export const arcTestnet = defineChain({
   },
   rpcUrls: {
     default: {
-      http: ["https://rpc.testnet.arc.network"],
+      http: [publicConfig.arcRpcUrl],
     },
   },
   blockExplorers: {
@@ -24,16 +25,37 @@ export const arcTestnet = defineChain({
   testnet: true,
 });
 
-export const CEO_ADDRESS: Address = "0x13e00D9810d3C8Dc19A8C9A172fd9A8aC56e94e0";
+export const CEO_ADDRESS = publicConfig.arcCeoAddress as Address;
+export const CORE_ADDRESS = publicConfig.arcCoreAddress as Address;
+export const PAYRUN_ADDRESS = publicConfig.arcPayRunAddress as Address;
+export const REBALANCE_ADDRESS = publicConfig.arcRebalanceAddress as Address;
+export const VESTING_ADDRESS = publicConfig.arcVestingAddress as Address;
 
 export const USDC_ADDRESS: Address = "0x3600000000000000000000000000000000000000";
-export const USYC_ADDRESS = (
-  process.env.NEXT_PUBLIC_ARC_USYC_ADDRESS ?? "0xe9185F0c5F296Ed1797AaE4238D26CCaBEadb86C"
-) as Address;
-export const USYC_TELLER_ADDRESS = (
-  process.env.NEXT_PUBLIC_ARC_USYC_TELLER_ADDRESS ?? "0x9fdF14c5B14173D74C08Af27AebFf39240dC105A"
-) as Address;
+export const USYC_ADDRESS = publicConfig.arcUsycAddress as Address;
+export const USYC_TELLER_ADDRESS = publicConfig.arcUsycTellerAddress as Address;
 export const USYC_ENTITLEMENTS_ADDRESS: Address = "0xcc205224862c7641930c87679e98999d23c26113";
+export const ARC_EXPLORER_BASE_URL = "https://testnet-explorer.arcscan.io";
+
+export const CORE_ABI = [
+  {
+    name: "treasuryBalance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "withdraw",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+] as const;
 
 export const USYC_TELLER_ABI = [
   {
@@ -58,6 +80,14 @@ export const USYC_TELLER_ABI = [
     type: "function",
   },
 ] as const;
+
+export function explorerTxUrl(hash: string) {
+  return `${ARC_EXPLORER_BASE_URL}/tx/${hash}`;
+}
+
+export function explorerAddressUrl(address: string) {
+  return `${ARC_EXPLORER_BASE_URL}/address/${address}`;
+}
 
 export const ERC20_ABI = [
   {

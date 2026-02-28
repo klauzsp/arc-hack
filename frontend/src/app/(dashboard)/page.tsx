@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { usePayroll } from "@/components/PayrollProvider";
 import { Card } from "@/components/Card";
+import { FrontendConfigCard } from "@/components/FrontendConfigCard";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
 
@@ -30,7 +31,7 @@ function formatDate(value: string) {
 }
 
 export default function DashboardPage() {
-  const { dashboard, treasury, payRuns, recipients, today, loading } = useMockPayroll();
+  const { dashboard, treasury, payRuns, recipients, today, loading } = usePayroll();
   const chainBalances = treasury?.chainBalances ?? [];
   const upcomingRun = payRuns.find(
     (payRun) => payRun.status === "approved" || payRun.status === "pending" || payRun.status === "draft",
@@ -187,6 +188,8 @@ export default function DashboardPage() {
           </Badge>
         </div>
       </Card>
+
+      <FrontendConfigCard />
     </div>
   );
 }

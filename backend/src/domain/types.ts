@@ -38,6 +38,7 @@ export interface EmployeeRecord {
   destinationWalletAddress: string | null;
   scheduleId: string | null;
   timeTrackingMode: TimeTrackingMode;
+  employmentStartDate: string | null;
   active: boolean;
 }
 
@@ -99,6 +100,18 @@ export interface PolicyRecord {
   status: PolicyStatus;
   config: Record<string, unknown>;
   lastRunAt: string | null;
+}
+
+export interface WithdrawalRecord {
+  id: string;
+  employeeId: string;
+  walletAddress: string;
+  amountCents: number;
+  txHash: string | null;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: string;
+  status: "paid" | "processing" | "failed";
 }
 
 export interface SessionRecord {

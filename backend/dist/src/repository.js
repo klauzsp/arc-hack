@@ -6,85 +6,397 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PayrollRepository = void 0;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
+const node_sqlite_1 = require("node:sqlite");
 const seeds_1 = require("./domain/seeds");
-function emptyState() {
+function toNumber(value) {
+    return typeof value === "bigint" ? Number(value) : Number(value ?? 0);
+}
+function toBoolean(value) {
+    return toNumber(value) !== 0;
+}
+function parseJson(value, fallback) {
+    if (typeof value !== "string")
+        return fallback;
+    try {
+        return JSON.parse(value);
+    }
+    catch {
+        return fallback;
+    }
+}
+function mapCompany(row) {
     return {
-        companies: [],
-        treasuryBalances: [],
-        schedules: [],
-        employees: [],
-        holidays: [],
-        timeEntries: [],
-        payRuns: [],
-        payRunItems: [],
-        policies: [],
-        authChallenges: [],
-        sessions: [],
+        id: String(row.id),
+        name: String(row.name),
+        payFrequency: "semimonthly",
+        defaultTimeTrackingMode: row.default_time_tracking_mode,
+        treasuryUsycCents: toNumber(row.treasury_usyc_cents),
+        autoRebalanceEnabled: toBoolean(row.auto_rebalance_enabled),
+        autoRedeemEnabled: toBoolean(row.auto_redeem_enabled),
+        rebalanceThresholdCents: toNumber(row.rebalance_threshold_cents),
+        payoutNoticeHours: toNumber(row.payout_notice_hours),
+    };
+}
+function mapTreasuryBalance(row) {
+    return {
+        companyId: String(row.company_id),
+        chainId: toNumber(row.chain_id),
+        chainName: String(row.chain_name),
+        usdcCents: toNumber(row.usdc_cents),
+        isHub: toBoolean(row.is_hub),
+    };
+}
+function mapSchedule(row) {
+    return {
+        id: String(row.id),
+        companyId: String(row.company_id),
+        name: String(row.name),
+        timezone: String(row.timezone),
+        hoursPerDay: toNumber(row.hours_per_day),
+        workingDays: parseJson(row.working_days_json, []),
+    };
+}
+function mapEmployee(row) {
+    return {
+        id: String(row.id),
+        companyId: String(row.company_id),
+        walletAddress: String(row.wallet_address),
+        name: String(row.name),
+        role: "employee",
+        payType: row.pay_type,
+        rateCents: toNumber(row.rate_cents),
+        chainPreference: row.chain_preference == null ? null : String(row.chain_preference),
+        destinationChainId: row.destination_chain_id == null ? null : toNumber(row.destination_chain_id),
+        destinationWalletAddress: row.destination_wallet_address == null ? null : String(row.destination_wallet_address),
+        scheduleId: row.schedule_id == null ? null : String(row.schedule_id),
+        timeTrackingMode: row.time_tracking_mode,
+        active: toBoolean(row.active),
+    };
+}
+function mapHoliday(row) {
+    return {
+        id: String(row.id),
+        companyId: String(row.company_id),
+        date: String(row.date),
+        name: String(row.name),
+    };
+}
+function mapTimeEntry(row) {
+    return {
+        id: String(row.id),
+        employeeId: String(row.employee_id),
+        date: String(row.date),
+        clockIn: String(row.clock_in),
+        clockOut: row.clock_out == null ? null : String(row.clock_out),
+        createdAt: String(row.created_at),
+    };
+}
+function mapPayRun(row) {
+    return {
+        id: String(row.id),
+        companyId: String(row.company_id),
+        onChainId: row.on_chain_id == null ? null : String(row.on_chain_id),
+        periodStart: String(row.period_start),
+        periodEnd: String(row.period_end),
+        status: row.status,
+        totalAmountCents: toNumber(row.total_amount_cents),
+        executedAt: row.executed_at == null ? null : String(row.executed_at),
+        txHash: row.tx_hash == null ? null : String(row.tx_hash),
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at),
+    };
+}
+function mapPayRunItem(row) {
+    return {
+        id: String(row.id),
+        payRunId: String(row.pay_run_id),
+        employeeId: String(row.employee_id),
+        recipientWalletAddress: String(row.recipient_wallet_address),
+        destinationChainId: toNumber(row.destination_chain_id),
+        amountCents: toNumber(row.amount_cents),
+        status: String(row.status),
+        txHash: row.tx_hash == null ? null : String(row.tx_hash),
+    };
+}
+function mapPolicy(row) {
+    return {
+        id: String(row.id),
+        companyId: String(row.company_id),
+        name: String(row.name),
+        type: row.type,
+        status: row.status,
+        config: parseJson(row.config_json, {}),
+        lastRunAt: row.last_run_at == null ? null : String(row.last_run_at),
+    };
+}
+function mapChallenge(row) {
+    return {
+        address: String(row.address),
+        nonce: String(row.nonce),
+        message: String(row.message),
+        expiresAt: String(row.expires_at),
+    };
+}
+function mapSession(row) {
+    return {
+        token: String(row.token),
+        address: String(row.address),
+        role: row.role,
+        employeeId: row.employee_id == null ? null : String(row.employee_id),
+        expiresAt: String(row.expires_at),
     };
 }
 class PayrollRepository {
     dbPath;
-    state = emptyState();
+    db;
+    demoPayRunIds = ["pr-1", "pr-2", "pr-3", "pr-4", "pr-5"];
     constructor(dbPath) {
         this.dbPath = dbPath;
         if (dbPath !== ":memory:") {
             node_fs_1.default.mkdirSync(node_path_1.default.dirname(dbPath), { recursive: true });
-            if (node_fs_1.default.existsSync(dbPath)) {
-                this.state = JSON.parse(node_fs_1.default.readFileSync(dbPath, "utf8"));
-            }
+        }
+        this.db = new node_sqlite_1.DatabaseSync(dbPath);
+        this.db.exec("PRAGMA foreign_keys = ON;");
+        this.createSchema();
+    }
+    close() {
+        this.db.close();
+    }
+    createSchema() {
+        this.db.exec(`
+      CREATE TABLE IF NOT EXISTS companies (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        pay_frequency TEXT NOT NULL,
+        default_time_tracking_mode TEXT NOT NULL,
+        treasury_usyc_cents INTEGER NOT NULL,
+        auto_rebalance_enabled INTEGER NOT NULL,
+        auto_redeem_enabled INTEGER NOT NULL,
+        rebalance_threshold_cents INTEGER NOT NULL,
+        payout_notice_hours INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS treasury_balances (
+        company_id TEXT NOT NULL,
+        chain_id INTEGER PRIMARY KEY,
+        chain_name TEXT NOT NULL,
+        usdc_cents INTEGER NOT NULL,
+        is_hub INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        hours_per_day REAL NOT NULL,
+        working_days_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS employees (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        wallet_address TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        pay_type TEXT NOT NULL,
+        rate_cents INTEGER NOT NULL,
+        chain_preference TEXT,
+        destination_chain_id INTEGER,
+        destination_wallet_address TEXT,
+        schedule_id TEXT,
+        time_tracking_mode TEXT NOT NULL,
+        active INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS holidays (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        name TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS time_entries (
+        id TEXT PRIMARY KEY,
+        employee_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        clock_in TEXT NOT NULL,
+        clock_out TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pay_runs (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        on_chain_id TEXT,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        status TEXT NOT NULL,
+        total_amount_cents INTEGER NOT NULL,
+        executed_at TEXT,
+        tx_hash TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS pay_run_items (
+        id TEXT PRIMARY KEY,
+        pay_run_id TEXT NOT NULL,
+        employee_id TEXT NOT NULL,
+        recipient_wallet_address TEXT NOT NULL,
+        destination_chain_id INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        tx_hash TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS policies (
+        id TEXT PRIMARY KEY,
+        company_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        last_run_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS auth_challenges (
+        address TEXT PRIMARY KEY,
+        nonce TEXT NOT NULL,
+        message TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        address TEXT NOT NULL,
+        role TEXT NOT NULL,
+        employee_id TEXT,
+        expires_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_holidays_date ON holidays(date);
+      CREATE INDEX IF NOT EXISTS idx_time_entries_employee_date ON time_entries(employee_id, date);
+      CREATE INDEX IF NOT EXISTS idx_pay_runs_period_start ON pay_runs(period_start DESC);
+      CREATE INDEX IF NOT EXISTS idx_pay_run_items_pay_run_id ON pay_run_items(pay_run_id);
+      CREATE INDEX IF NOT EXISTS idx_policies_type_status ON policies(type, status);
+      CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires_at ON auth_challenges(expires_at);
+    `);
+    }
+    transaction(callback) {
+        this.db.exec("BEGIN");
+        try {
+            const result = callback();
+            this.db.exec("COMMIT");
+            return result;
+        }
+        catch (error) {
+            this.db.exec("ROLLBACK");
+            throw error;
         }
     }
-    close() { }
-    persist() {
-        if (this.dbPath === ":memory:")
-            return;
-        node_fs_1.default.writeFileSync(this.dbPath, JSON.stringify(this.state, null, 2));
+    removeDemoPayRuns() {
+        const placeholders = this.demoPayRunIds.map(() => "?").join(", ");
+        this.transaction(() => {
+            this.db.prepare(`DELETE FROM pay_run_items WHERE pay_run_id IN (${placeholders})`).run(...this.demoPayRunIds);
+            this.db.prepare(`DELETE FROM pay_runs WHERE id IN (${placeholders})`).run(...this.demoPayRunIds);
+        });
     }
     initialize(seedInput) {
-        if (this.state.companies.length > 0)
+        const row = this.db.prepare("SELECT COUNT(*) AS count FROM companies").get();
+        if (toNumber(row.count) > 0) {
+            this.removeDemoPayRuns();
             return;
+        }
         const payload = (0, seeds_1.createSeedPayload)(seedInput);
-        this.state = {
-            companies: [payload.company],
-            treasuryBalances: payload.treasuryBalances,
-            schedules: payload.schedules,
-            employees: payload.employees,
-            holidays: payload.holidays,
-            timeEntries: payload.timeEntries,
-            payRuns: payload.payRuns,
-            payRunItems: payload.payRunItems,
-            policies: payload.policies,
-            authChallenges: [],
-            sessions: [],
-        };
-        this.persist();
+        this.transaction(() => {
+            this.db
+                .prepare(`INSERT INTO companies (
+            id, name, pay_frequency, default_time_tracking_mode, treasury_usyc_cents,
+            auto_rebalance_enabled, auto_redeem_enabled, rebalance_threshold_cents, payout_notice_hours
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                .run(payload.company.id, payload.company.name, payload.company.payFrequency, payload.company.defaultTimeTrackingMode, payload.company.treasuryUsycCents, Number(payload.company.autoRebalanceEnabled), Number(payload.company.autoRedeemEnabled), payload.company.rebalanceThresholdCents, payload.company.payoutNoticeHours);
+            const insertTreasury = this.db.prepare("INSERT INTO treasury_balances (company_id, chain_id, chain_name, usdc_cents, is_hub) VALUES (?, ?, ?, ?, ?)");
+            for (const balance of payload.treasuryBalances) {
+                insertTreasury.run(balance.companyId, balance.chainId, balance.chainName, balance.usdcCents, Number(balance.isHub));
+            }
+            const insertSchedule = this.db.prepare("INSERT INTO schedules (id, company_id, name, timezone, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?)");
+            for (const schedule of payload.schedules) {
+                insertSchedule.run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
+            }
+            const insertEmployee = this.db.prepare(`INSERT INTO employees (
+          id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const employee of payload.employees) {
+                insertEmployee.run(employee.id, employee.companyId, employee.walletAddress, employee.name, employee.role, employee.payType, employee.rateCents, employee.chainPreference, employee.destinationChainId, employee.destinationWalletAddress, employee.scheduleId, employee.timeTrackingMode, Number(employee.active));
+            }
+            const insertHoliday = this.db.prepare("INSERT INTO holidays (id, company_id, date, name) VALUES (?, ?, ?, ?)");
+            for (const holiday of payload.holidays) {
+                insertHoliday.run(holiday.id, holiday.companyId, holiday.date, holiday.name);
+            }
+            const insertTimeEntry = this.db.prepare("INSERT INTO time_entries (id, employee_id, date, clock_in, clock_out, created_at) VALUES (?, ?, ?, ?, ?, ?)");
+            for (const entry of payload.timeEntries) {
+                insertTimeEntry.run(entry.id, entry.employeeId, entry.date, entry.clockIn, entry.clockOut, entry.createdAt);
+            }
+            const insertPayRun = this.db.prepare(`INSERT INTO pay_runs (
+          id, company_id, on_chain_id, period_start, period_end, status, total_amount_cents,
+          executed_at, tx_hash, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const payRun of payload.payRuns) {
+                insertPayRun.run(payRun.id, payRun.companyId, payRun.onChainId, payRun.periodStart, payRun.periodEnd, payRun.status, payRun.totalAmountCents, payRun.executedAt, payRun.txHash, payRun.createdAt, payRun.updatedAt);
+            }
+            const insertPayRunItem = this.db.prepare(`INSERT INTO pay_run_items (
+          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents, status, tx_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const item of payload.payRunItems) {
+                insertPayRunItem.run(item.id, item.payRunId, item.employeeId, item.recipientWalletAddress, item.destinationChainId, item.amountCents, item.status, item.txHash);
+            }
+            const insertPolicy = this.db.prepare("INSERT INTO policies (id, company_id, name, type, status, config_json, last_run_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            for (const policy of payload.policies) {
+                insertPolicy.run(policy.id, policy.companyId, policy.name, policy.type, policy.status, JSON.stringify(policy.config), policy.lastRunAt);
+            }
+        });
+        this.removeDemoPayRuns();
     }
     getCompany() {
-        return this.state.companies[0] ?? null;
+        const row = this.db.prepare("SELECT * FROM companies LIMIT 1").get();
+        return row ? mapCompany(row) : null;
     }
     updateCompany(company) {
-        this.state.companies = this.state.companies.map((entry) => (entry.id === company.id ? company : entry));
-        this.persist();
+        this.db
+            .prepare(`UPDATE companies
+         SET name = ?, pay_frequency = ?, default_time_tracking_mode = ?, treasury_usyc_cents = ?,
+             auto_rebalance_enabled = ?, auto_redeem_enabled = ?, rebalance_threshold_cents = ?, payout_notice_hours = ?
+         WHERE id = ?`)
+            .run(company.name, company.payFrequency, company.defaultTimeTrackingMode, company.treasuryUsycCents, Number(company.autoRebalanceEnabled), Number(company.autoRedeemEnabled), company.rebalanceThresholdCents, company.payoutNoticeHours, company.id);
     }
     listTreasuryBalances() {
-        return [...this.state.treasuryBalances].sort((left, right) => Number(right.isHub) - Number(left.isHub) || left.chainName.localeCompare(right.chainName));
+        return this.db
+            .prepare("SELECT * FROM treasury_balances ORDER BY is_hub DESC, chain_name ASC")
+            .all().map(mapTreasuryBalance);
     }
     getTreasuryBalance(chainId) {
-        return this.state.treasuryBalances.find((balance) => balance.chainId === chainId) ?? null;
+        const row = this.db
+            .prepare("SELECT * FROM treasury_balances WHERE chain_id = ?")
+            .get(chainId);
+        return row ? mapTreasuryBalance(row) : null;
     }
     updateTreasuryBalance(chainId, usdcCents) {
-        this.state.treasuryBalances = this.state.treasuryBalances.map((balance) => balance.chainId === chainId ? { ...balance, usdcCents } : balance);
-        this.persist();
+        this.db.prepare("UPDATE treasury_balances SET usdc_cents = ? WHERE chain_id = ?").run(usdcCents, chainId);
     }
     listSchedules() {
-        return [...this.state.schedules].sort((left, right) => left.name.localeCompare(right.name));
+        return this.db.prepare("SELECT * FROM schedules ORDER BY name ASC").all().map(mapSchedule);
     }
     getSchedule(id) {
-        return this.state.schedules.find((schedule) => schedule.id === id) ?? null;
+        const row = this.db.prepare("SELECT * FROM schedules WHERE id = ?").get(id);
+        return row ? mapSchedule(row) : null;
     }
     createSchedule(schedule) {
-        this.state.schedules.push(schedule);
-        this.persist();
+        this.db
+            .prepare("INSERT INTO schedules (id, company_id, name, timezone, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?)")
+            .run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
         return schedule;
     }
     updateSchedule(id, patch) {
@@ -92,23 +404,34 @@ class PayrollRepository {
         if (!current)
             return null;
         const next = { ...current, ...patch, id };
-        this.state.schedules = this.state.schedules.map((schedule) => (schedule.id === id ? next : schedule));
-        this.persist();
+        this.db
+            .prepare("UPDATE schedules SET company_id = ?, name = ?, timezone = ?, hours_per_day = ?, working_days_json = ? WHERE id = ?")
+            .run(next.companyId, next.name, next.timezone, next.hoursPerDay, JSON.stringify(next.workingDays), id);
         return next;
     }
     listEmployees(includeInactive = false) {
-        const employees = includeInactive ? this.state.employees : this.state.employees.filter((employee) => employee.active);
-        return [...employees].sort((left, right) => left.name.localeCompare(right.name));
+        const sql = includeInactive
+            ? "SELECT * FROM employees ORDER BY name ASC"
+            : "SELECT * FROM employees WHERE active = 1 ORDER BY name ASC";
+        return this.db.prepare(sql).all().map(mapEmployee);
     }
     getEmployee(id) {
-        return this.state.employees.find((employee) => employee.id === id) ?? null;
+        const row = this.db.prepare("SELECT * FROM employees WHERE id = ?").get(id);
+        return row ? mapEmployee(row) : null;
     }
     getEmployeeByWallet(walletAddress) {
-        return this.state.employees.find((employee) => employee.walletAddress.toLowerCase() === walletAddress.toLowerCase()) ?? null;
+        const row = this.db
+            .prepare("SELECT * FROM employees WHERE wallet_address = ?")
+            .get(walletAddress.toLowerCase());
+        return row ? mapEmployee(row) : null;
     }
     createEmployee(employee) {
-        this.state.employees.push(employee);
-        this.persist();
+        this.db
+            .prepare(`INSERT INTO employees (
+          id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
+          destination_chain_id, destination_wallet_address, schedule_id, time_tracking_mode, active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(employee.id, employee.companyId, employee.walletAddress, employee.name, employee.role, employee.payType, employee.rateCents, employee.chainPreference, employee.destinationChainId, employee.destinationWalletAddress, employee.scheduleId, employee.timeTrackingMode, Number(employee.active));
         return employee;
     }
     updateEmployee(id, patch) {
@@ -116,77 +439,91 @@ class PayrollRepository {
         if (!current)
             return null;
         const next = { ...current, ...patch, id };
-        this.state.employees = this.state.employees.map((employee) => (employee.id === id ? next : employee));
-        this.persist();
+        this.db
+            .prepare(`UPDATE employees
+         SET company_id = ?, wallet_address = ?, name = ?, role = ?, pay_type = ?, rate_cents = ?,
+             chain_preference = ?, destination_chain_id = ?, destination_wallet_address = ?, schedule_id = ?,
+             time_tracking_mode = ?, active = ?
+         WHERE id = ?`)
+            .run(next.companyId, next.walletAddress, next.name, next.role, next.payType, next.rateCents, next.chainPreference, next.destinationChainId, next.destinationWalletAddress, next.scheduleId, next.timeTrackingMode, Number(next.active), id);
         return next;
     }
     deactivateEmployee(id) {
-        this.state.employees = this.state.employees.map((employee) => employee.id === id ? { ...employee, active: false } : employee);
-        this.persist();
+        this.db.prepare("UPDATE employees SET active = 0 WHERE id = ?").run(id);
     }
     listHolidays() {
-        return [...this.state.holidays].sort((left, right) => left.date.localeCompare(right.date));
+        return this.db.prepare("SELECT * FROM holidays ORDER BY date ASC").all().map(mapHoliday);
     }
     createHoliday(holiday) {
-        this.state.holidays.push(holiday);
-        this.persist();
+        this.db.prepare("INSERT INTO holidays (id, company_id, date, name) VALUES (?, ?, ?, ?)").run(holiday.id, holiday.companyId, holiday.date, holiday.name);
         return holiday;
     }
     updateHoliday(id, patch) {
-        const current = this.state.holidays.find((holiday) => holiday.id === id);
+        const current = this.db.prepare("SELECT * FROM holidays WHERE id = ?").get(id);
         if (!current)
             return null;
-        const next = { ...current, ...patch, id };
-        this.state.holidays = this.state.holidays.map((holiday) => (holiday.id === id ? next : holiday));
-        this.persist();
+        const next = { ...mapHoliday(current), ...patch, id };
+        this.db.prepare("UPDATE holidays SET company_id = ?, date = ?, name = ? WHERE id = ?").run(next.companyId, next.date, next.name, id);
         return next;
     }
     listTimeEntries(employeeId, start, end) {
-        return this.state.timeEntries
-            .filter((entry) => {
-            if (entry.employeeId !== employeeId)
-                return false;
-            if (start && entry.date < start)
-                return false;
-            if (end && entry.date > end)
-                return false;
-            return true;
-        })
-            .sort((left, right) => `${left.date}${left.clockIn}`.localeCompare(`${right.date}${right.clockIn}`));
+        let sql = "SELECT * FROM time_entries WHERE employee_id = ?";
+        const params = [employeeId];
+        if (start) {
+            sql += " AND date >= ?";
+            params.push(start);
+        }
+        if (end) {
+            sql += " AND date <= ?";
+            params.push(end);
+        }
+        sql += " ORDER BY date ASC, clock_in ASC";
+        return this.db.prepare(sql).all(...params).map(mapTimeEntry);
     }
     getOpenTimeEntry(employeeId) {
-        return this.state.timeEntries
-            .filter((entry) => entry.employeeId === employeeId && !entry.clockOut)
-            .sort((left, right) => `${right.date}${right.clockIn}`.localeCompare(`${left.date}${left.clockIn}`))[0] ?? null;
+        const row = this.db
+            .prepare("SELECT * FROM time_entries WHERE employee_id = ? AND clock_out IS NULL ORDER BY date DESC, clock_in DESC LIMIT 1")
+            .get(employeeId);
+        return row ? mapTimeEntry(row) : null;
     }
     createTimeEntry(timeEntry) {
-        this.state.timeEntries.push(timeEntry);
-        this.persist();
+        this.db
+            .prepare("INSERT INTO time_entries (id, employee_id, date, clock_in, clock_out, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .run(timeEntry.id, timeEntry.employeeId, timeEntry.date, timeEntry.clockIn, timeEntry.clockOut, timeEntry.createdAt);
         return timeEntry;
     }
     closeTimeEntry(id, clockOut) {
-        let updated = null;
-        this.state.timeEntries = this.state.timeEntries.map((entry) => {
-            if (entry.id !== id)
-                return entry;
-            updated = { ...entry, clockOut };
-            return updated;
-        });
-        this.persist();
-        return updated;
+        const current = this.db.prepare("SELECT * FROM time_entries WHERE id = ?").get(id);
+        if (!current)
+            return null;
+        this.db.prepare("UPDATE time_entries SET clock_out = ? WHERE id = ?").run(clockOut, id);
+        return { ...mapTimeEntry(current), clockOut };
     }
     listPayRuns(status) {
-        return this.state.payRuns
-            .filter((payRun) => (status ? payRun.status === status : true))
-            .sort((left, right) => right.periodStart.localeCompare(left.periodStart));
+        if (status) {
+            return this.db.prepare("SELECT * FROM pay_runs WHERE status = ? ORDER BY period_start DESC").all(status).map(mapPayRun);
+        }
+        return this.db.prepare("SELECT * FROM pay_runs ORDER BY period_start DESC").all().map(mapPayRun);
     }
     getPayRun(id) {
-        return this.state.payRuns.find((payRun) => payRun.id === id) ?? null;
+        const row = this.db.prepare("SELECT * FROM pay_runs WHERE id = ?").get(id);
+        return row ? mapPayRun(row) : null;
     }
     createPayRun(payRun, items) {
-        this.state.payRuns.push(payRun);
-        this.state.payRunItems.push(...items);
-        this.persist();
+        this.transaction(() => {
+            this.db
+                .prepare(`INSERT INTO pay_runs (
+            id, company_id, on_chain_id, period_start, period_end, status, total_amount_cents,
+            executed_at, tx_hash, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+                .run(payRun.id, payRun.companyId, payRun.onChainId, payRun.periodStart, payRun.periodEnd, payRun.status, payRun.totalAmountCents, payRun.executedAt, payRun.txHash, payRun.createdAt, payRun.updatedAt);
+            const insertItem = this.db.prepare(`INSERT INTO pay_run_items (
+          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents, status, tx_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const item of items) {
+                insertItem.run(item.id, item.payRunId, item.employeeId, item.recipientWalletAddress, item.destinationChainId, item.amountCents, item.status, item.txHash);
+            }
+        });
         return payRun;
     }
     updatePayRun(id, patch) {
@@ -194,73 +531,104 @@ class PayrollRepository {
         if (!current)
             return null;
         const next = { ...current, ...patch, id };
-        this.state.payRuns = this.state.payRuns.map((payRun) => (payRun.id === id ? next : payRun));
-        this.persist();
+        this.db
+            .prepare(`UPDATE pay_runs
+         SET company_id = ?, on_chain_id = ?, period_start = ?, period_end = ?, status = ?, total_amount_cents = ?,
+             executed_at = ?, tx_hash = ?, created_at = ?, updated_at = ?
+         WHERE id = ?`)
+            .run(next.companyId, next.onChainId, next.periodStart, next.periodEnd, next.status, next.totalAmountCents, next.executedAt, next.txHash, next.createdAt, next.updatedAt, id);
         return next;
     }
     replacePayRunItems(payRunId, items) {
-        this.state.payRunItems = this.state.payRunItems.filter((item) => item.payRunId !== payRunId).concat(items);
-        this.persist();
+        this.transaction(() => {
+            this.db.prepare("DELETE FROM pay_run_items WHERE pay_run_id = ?").run(payRunId);
+            const insertItem = this.db.prepare(`INSERT INTO pay_run_items (
+          id, pay_run_id, employee_id, recipient_wallet_address, destination_chain_id, amount_cents, status, tx_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+            for (const item of items) {
+                insertItem.run(item.id, item.payRunId, item.employeeId, item.recipientWalletAddress, item.destinationChainId, item.amountCents, item.status, item.txHash);
+            }
+        });
     }
     listPayRunItems(payRunId) {
-        return this.state.payRunItems.filter((item) => (payRunId ? item.payRunId === payRunId : true));
+        const rows = payRunId
+            ? this.db
+                .prepare("SELECT * FROM pay_run_items WHERE pay_run_id = ? ORDER BY id ASC")
+                .all(payRunId)
+            : this.db.prepare("SELECT * FROM pay_run_items ORDER BY id ASC").all();
+        return rows.map(mapPayRunItem);
     }
     updatePayRunItem(id, patch) {
-        const current = this.state.payRunItems.find((item) => item.id === id);
-        if (!current)
+        const currentRow = this.db
+            .prepare("SELECT * FROM pay_run_items WHERE id = ?")
+            .get(id);
+        if (!currentRow)
             return null;
-        const next = { ...current, ...patch, id };
-        this.state.payRunItems = this.state.payRunItems.map((item) => (item.id === id ? next : item));
-        this.persist();
+        const next = { ...mapPayRunItem(currentRow), ...patch, id };
+        this.db
+            .prepare(`UPDATE pay_run_items
+         SET pay_run_id = ?, employee_id = ?, recipient_wallet_address = ?, destination_chain_id = ?,
+             amount_cents = ?, status = ?, tx_hash = ?
+         WHERE id = ?`)
+            .run(next.payRunId, next.employeeId, next.recipientWalletAddress, next.destinationChainId, next.amountCents, next.status, next.txHash, id);
         return next;
     }
     listPolicies() {
-        return [...this.state.policies].sort((left, right) => left.name.localeCompare(right.name));
+        return this.db.prepare("SELECT * FROM policies ORDER BY name ASC").all().map(mapPolicy);
     }
     createPolicy(policy) {
-        this.state.policies.push(policy);
-        this.persist();
+        this.db
+            .prepare("INSERT INTO policies (id, company_id, name, type, status, config_json, last_run_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .run(policy.id, policy.companyId, policy.name, policy.type, policy.status, JSON.stringify(policy.config), policy.lastRunAt);
         return policy;
     }
     updatePolicy(id, patch) {
-        const current = this.state.policies.find((policy) => policy.id === id);
-        if (!current)
+        const currentRow = this.db.prepare("SELECT * FROM policies WHERE id = ?").get(id);
+        if (!currentRow)
             return null;
-        const next = { ...current, ...patch, id };
-        this.state.policies = this.state.policies.map((policy) => (policy.id === id ? next : policy));
-        this.persist();
+        const next = { ...mapPolicy(currentRow), ...patch, id };
+        this.db
+            .prepare("UPDATE policies SET company_id = ?, name = ?, type = ?, status = ?, config_json = ?, last_run_at = ? WHERE id = ?")
+            .run(next.companyId, next.name, next.type, next.status, JSON.stringify(next.config), next.lastRunAt, id);
         return next;
     }
     storeChallenge(record) {
-        this.state.authChallenges = this.state.authChallenges.filter((challenge) => challenge.address !== record.address);
-        this.state.authChallenges.push(record);
-        this.persist();
+        this.db
+            .prepare(`INSERT INTO auth_challenges (address, nonce, message, expires_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(address) DO UPDATE SET nonce = excluded.nonce, message = excluded.message, expires_at = excluded.expires_at`)
+            .run(record.address, record.nonce, record.message, record.expiresAt);
         return record;
     }
     getChallenge(address) {
-        return this.state.authChallenges.find((challenge) => challenge.address === address) ?? null;
+        const row = this.db
+            .prepare("SELECT * FROM auth_challenges WHERE address = ?")
+            .get(address);
+        return row ? mapChallenge(row) : null;
     }
     deleteChallenge(address) {
-        this.state.authChallenges = this.state.authChallenges.filter((challenge) => challenge.address !== address);
-        this.persist();
+        this.db.prepare("DELETE FROM auth_challenges WHERE address = ?").run(address);
     }
     createSession(record) {
-        this.state.sessions = this.state.sessions.filter((session) => session.token !== record.token);
-        this.state.sessions.push(record);
-        this.persist();
+        this.db
+            .prepare(`INSERT INTO sessions (token, address, role, employee_id, expires_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(token) DO UPDATE SET address = excluded.address, role = excluded.role, employee_id = excluded.employee_id, expires_at = excluded.expires_at`)
+            .run(record.token, record.address, record.role, record.employeeId, record.expiresAt);
         return record;
     }
     getSession(token) {
-        return this.state.sessions.find((session) => session.token === token) ?? null;
+        const row = this.db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
+        return row ? mapSession(row) : null;
     }
     deleteSession(token) {
-        this.state.sessions = this.state.sessions.filter((session) => session.token !== token);
-        this.persist();
+        this.db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
     }
     purgeExpiredSessions(nowIso) {
-        this.state.sessions = this.state.sessions.filter((session) => session.expiresAt > nowIso);
-        this.state.authChallenges = this.state.authChallenges.filter((challenge) => challenge.expiresAt > nowIso);
-        this.persist();
+        this.transaction(() => {
+            this.db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(nowIso);
+            this.db.prepare("DELETE FROM auth_challenges WHERE expires_at <= ?").run(nowIso);
+        });
     }
 }
 exports.PayrollRepository = PayrollRepository;

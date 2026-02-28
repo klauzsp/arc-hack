@@ -1,7 +1,7 @@
 "use client";
 
 import { useAccount } from "wagmi";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
@@ -47,7 +47,7 @@ export default function MyEarningsPage() {
     getRecipientMetrics,
     loading,
     error,
-  } = useMockPayroll();
+  } = usePayroll();
 
   const connectedRecipient = getRecipientByWallet(address);
   const isAdmin = role === "admin";

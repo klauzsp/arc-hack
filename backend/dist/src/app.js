@@ -119,7 +119,11 @@ function buildApp(config) {
         }
         reply.status(500).send({ error: "Internal server error" });
     });
-    app.get("/health", async () => ({ ok: true, mode: config.chainMode }));
+    app.get("/health", async () => ({
+        ok: true,
+        mode: config.chainMode,
+        stableFxConfigured: Boolean(config.liveChain?.stableFxApiKey),
+    }));
     app.post("/auth/challenge", async (request) => {
         const body = zod_1.z.object({ address: zod_1.z.string().min(1) }).parse(request.body ?? {});
         return authService.issueChallenge(body.address, (0, dates_1.nowIso)());
@@ -208,6 +212,25 @@ function buildApp(config) {
         const session = await getSessionOrThrow(request, authService, "employee");
         return payrollService.getMyEarnings(session.address);
     });
+    app.get("/employees/:id", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        return payrollService.getEmployeeProfile(params.id);
+    });
+    app.get("/employees/:id/time-entries", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        const query = zod_1.z.object({
+            start: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+            end: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        }).parse(request.query ?? {});
+        return payrollService.getEmployeeTimeEntries(params.id, query.start, query.end);
+    });
+    app.get("/employees/:id/earnings", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        return payrollService.getEmployeeEarnings(params.id);
+    });
     app.get("/pay-runs", async (request) => {
         await getSessionOrThrow(request, authService, "admin");
         return payrollService.listPayRuns();
@@ -236,8 +259,13 @@ function buildApp(config) {
         const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
         return payrollService.executePayRun(params.id);
     });
+    app.post("/pay-runs/:id/finalize", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        return payrollService.finalizePayRun(params.id);
+    });
     app.get("/treasury/balances", async () => payrollService.getTreasury());
-    app.get("/treasury/auto-policy", async () => payrollService.getTreasury().autoPolicy);
+    app.get("/treasury/auto-policy", async () => (await payrollService.getTreasury()).autoPolicy);
     app.post("/treasury/auto-policy", async (request) => {
         await getSessionOrThrow(request, authService, "admin");
         return payrollService.updateAutoPolicy(autoPolicySchema.parse(request.body ?? {}));

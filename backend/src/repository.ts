@@ -169,6 +169,7 @@ function mapSession(row: Record<string, unknown>): SessionRecord {
 
 export class PayrollRepository {
   private readonly db: DatabaseSync;
+  private readonly demoPayRunIds = ["pr-1", "pr-2", "pr-3", "pr-4", "pr-5"] as const;
 
   constructor(private readonly dbPath: string) {
     if (dbPath !== ":memory:") {
@@ -319,9 +320,20 @@ export class PayrollRepository {
     }
   }
 
+  private removeDemoPayRuns() {
+    const placeholders = this.demoPayRunIds.map(() => "?").join(", ");
+    this.transaction(() => {
+      this.db.prepare(`DELETE FROM pay_run_items WHERE pay_run_id IN (${placeholders})`).run(...this.demoPayRunIds);
+      this.db.prepare(`DELETE FROM pay_runs WHERE id IN (${placeholders})`).run(...this.demoPayRunIds);
+    });
+  }
+
   initialize(seedInput: { companyId: string; companyName: string; today: string; arcChainId: number }) {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM companies").get() as Record<string, unknown>;
-    if (toNumber(row.count) > 0) return;
+    if (toNumber(row.count) > 0) {
+      this.removeDemoPayRuns();
+      return;
+    }
 
     const payload = createSeedPayload(seedInput);
 
@@ -472,6 +484,8 @@ export class PayrollRepository {
         );
       }
     });
+
+    this.removeDemoPayRuns();
   }
 
   getCompany() {

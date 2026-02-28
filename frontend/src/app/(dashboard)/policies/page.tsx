@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 import { useAuthSession } from "@/components/AuthProvider";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { usePayroll } from "@/components/PayrollProvider";
 
 function statusVariant(status: string): "success" | "default" {
   return status === "active" ? "success" : "default";
@@ -32,7 +32,7 @@ function describePolicy(type: string, config: Record<string, unknown>) {
 
 export default function PoliciesPage() {
   const { role } = useAuthSession();
-  const { policies, loading, error, createPolicy, updatePolicy } = useMockPayroll();
+  const { policies, loading, error, createPolicy, updatePolicy } = usePayroll();
   const [creating, setCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -223,7 +223,7 @@ export default function PoliciesPage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
           </svg>
           <p className="text-sm text-slate-500">
-            Policies are stored in the backend database and executed by the backend job runner, not by in-browser mock state.
+            Policies are stored in the backend database and executed by the backend job runner, not by in-browser placeholder state.
           </p>
         </div>
       </Card>

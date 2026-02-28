@@ -13,6 +13,16 @@ interface ChainExecutePayRunResult {
   txHash: string;
 }
 
+interface ChainTreasurySnapshot {
+  coreAddress: `0x${string}`;
+  controllerAddress: `0x${string}`;
+  payRunAddress: `0x${string}`;
+  rebalanceAddress: `0x${string}`;
+  treasuryUsdcBaseUnits: bigint;
+  controllerUsdcBaseUnits: bigint;
+  controllerUsycBaseUnits: bigint;
+}
+
 function toUsdcBaseUnits(cents: number) {
   return BigInt(cents) * 10_000n;
 }
@@ -23,34 +33,46 @@ function createMockHash(seed: string) {
 
 export class ChainService {
   private readonly config: AppConfig;
+  private readonly account;
   private readonly walletClient;
   private readonly publicClient;
 
   private readonly coreAbi = parseAbi([
+    "function treasuryBalance() view returns (uint256)",
     "function withdraw(address to, uint256 amount)",
   ]);
 
   private readonly payRunAbi = parseAbi([
     "function createPayRun(bytes32 payRunId, uint64 periodStart, uint64 periodEnd, address[] recipients, uint256[] amounts, uint32[] chainIds) returns (uint256)",
     "function executePayRun(bytes32 payRunId) returns (uint256 arcPayoutAmount, uint256 crossChainItemCount)",
+    "function finalizePayRun(bytes32 payRunId)",
   ]);
 
-  private readonly rebalanceAbi = parseAbi([
-    "function usdcToUsyc(uint256 amount, address receiver) returns (uint256)",
-    "function usycToUsdc(uint256 shares, address receiver) returns (uint256)",
+  private readonly tellerAbi = parseAbi([
+    "function deposit(uint256 assets, address receiver) returns (uint256)",
+    "function redeem(uint256 shares, address receiver, address account) returns (uint256)",
+  ]);
+
+  private readonly erc20Abi = parseAbi([
+    "function balanceOf(address account) view returns (uint256)",
+    "function approve(address spender, uint256 amount) returns (bool)",
+    "function transfer(address to, uint256 amount) returns (bool)",
   ]);
 
   constructor(config: AppConfig) {
     this.config = config;
+    this.account =
+      this.config.chainMode === "live" && this.config.liveChain
+        ? privateKeyToAccount(this.config.liveChain.privateKey)
+        : null;
     this.walletClient = this.createWalletClient();
     this.publicClient = this.createPublicClient();
   }
 
   private createWalletClient() {
-    if (this.config.chainMode !== "live" || !this.config.liveChain) return null;
-    const account = privateKeyToAccount(this.config.liveChain.privateKey);
+    if (this.config.chainMode !== "live" || !this.config.liveChain || !this.account) return null;
     return createWalletClient({
-      account,
+      account: this.account,
       transport: http(this.config.liveChain.rpcUrl),
     });
   }
@@ -62,8 +84,56 @@ export class ChainService {
     });
   }
 
+  private requireLiveClients() {
+    if (!this.walletClient || !this.publicClient || !this.config.liveChain || !this.account) {
+      throw new Error("Live chain client is not configured.");
+    }
+
+    return {
+      walletClient: this.walletClient,
+      publicClient: this.publicClient,
+      liveChain: this.config.liveChain,
+      account: this.account,
+    };
+  }
+
   createOnChainPayRunId(payRunId: string) {
     return keccak256(stringToHex(payRunId));
+  }
+
+  async getTreasurySnapshot(): Promise<ChainTreasurySnapshot | null> {
+    if (this.config.chainMode !== "live") return null;
+
+    const { publicClient, liveChain, account } = this.requireLiveClients();
+    const [treasuryUsdcBaseUnits, controllerUsdcBaseUnits, controllerUsycBaseUnits] = await Promise.all([
+      publicClient.readContract({
+        address: liveChain.coreAddress,
+        abi: this.coreAbi,
+        functionName: "treasuryBalance",
+      }),
+      publicClient.readContract({
+        address: liveChain.usdcAddress,
+        abi: this.erc20Abi,
+        functionName: "balanceOf",
+        args: [account.address],
+      }),
+      publicClient.readContract({
+        address: liveChain.usycAddress,
+        abi: this.erc20Abi,
+        functionName: "balanceOf",
+        args: [account.address],
+      }),
+    ]);
+
+    return {
+      coreAddress: liveChain.coreAddress,
+      controllerAddress: account.address,
+      payRunAddress: liveChain.payRunAddress,
+      rebalanceAddress: liveChain.rebalanceAddress,
+      treasuryUsdcBaseUnits,
+      controllerUsdcBaseUnits,
+      controllerUsycBaseUnits,
+    };
   }
 
   async createPayRun(input: ChainCreatePayRunInput): Promise<string> {
@@ -113,30 +183,58 @@ export class ChainService {
     return { onChainId, txHash };
   }
 
+  async finalizePayRun(payRun: PayRunRecord) {
+    const onChainId = payRun.onChainId ?? this.createOnChainPayRunId(payRun.id);
+    if (this.config.chainMode !== "live" || !this.walletClient || !this.config.liveChain) {
+      return createMockHash(`finalize-${payRun.id}`);
+    }
+
+    const txHash = await this.walletClient.writeContract({
+      chain: undefined,
+      address: this.config.liveChain.payRunAddress,
+      abi: this.payRunAbi,
+      functionName: "finalizePayRun",
+      args: [onChainId as `0x${string}`],
+    });
+    await this.publicClient?.waitForTransactionReceipt({ hash: txHash });
+
+    return txHash;
+  }
+
   async rebalanceUsdcToUsyc(amountCents: number) {
     if (this.config.chainMode !== "live" || !this.walletClient || !this.config.liveChain) {
       return createMockHash(`usdc-to-usyc-${amountCents}`);
     }
 
+    const { walletClient, publicClient, liveChain, account } = this.requireLiveClients();
     const amount = toUsdcBaseUnits(amountCents);
-    const fundingTxHash = await this.walletClient.writeContract({
+    const fundingTxHash = await walletClient.writeContract({
       chain: undefined,
-      address: this.config.liveChain.coreAddress,
+      address: liveChain.coreAddress,
       abi: this.coreAbi,
       functionName: "withdraw",
-      args: [this.config.liveChain.rebalanceAddress, amount],
+      args: [account.address, amount],
     });
-    await this.publicClient?.waitForTransactionReceipt({ hash: fundingTxHash });
+    await publicClient.waitForTransactionReceipt({ hash: fundingTxHash });
 
-    const txHash = await this.walletClient.writeContract({
+    const approvalTxHash = await walletClient.writeContract({
       chain: undefined,
-      address: this.config.liveChain.rebalanceAddress,
-      abi: this.rebalanceAbi,
-      functionName: "usdcToUsyc",
-      args: [amount, this.config.liveChain.rebalanceAddress],
+      address: liveChain.usdcAddress,
+      abi: this.erc20Abi,
+      functionName: "approve",
+      args: [liveChain.usycTellerAddress, amount],
     });
-    await this.publicClient?.waitForTransactionReceipt({ hash: txHash });
-    return txHash;
+    await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
+
+    const depositTxHash = await walletClient.writeContract({
+      chain: undefined,
+      address: liveChain.usycTellerAddress,
+      abi: this.tellerAbi,
+      functionName: "deposit",
+      args: [amount, account.address],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: depositTxHash });
+    return depositTxHash;
   }
 
   async rebalanceUsycToUsdc(amountCents: number) {
@@ -144,14 +242,49 @@ export class ChainService {
       return createMockHash(`usyc-to-usdc-${amountCents}`);
     }
 
-    const txHash = await this.walletClient.writeContract({
-      chain: undefined,
-      address: this.config.liveChain.rebalanceAddress,
-      abi: this.rebalanceAbi,
-      functionName: "usycToUsdc",
-      args: [toUsdcBaseUnits(amountCents), this.config.liveChain.coreAddress],
+    const { walletClient, publicClient, liveChain, account } = this.requireLiveClients();
+    const amount = toUsdcBaseUnits(amountCents);
+    const controllerUsdcBefore = await publicClient.readContract({
+      address: liveChain.usdcAddress,
+      abi: this.erc20Abi,
+      functionName: "balanceOf",
+      args: [account.address],
     });
-    await this.publicClient?.waitForTransactionReceipt({ hash: txHash });
-    return txHash;
+
+    const approvalTxHash = await walletClient.writeContract({
+      chain: undefined,
+      address: liveChain.usycAddress,
+      abi: this.erc20Abi,
+      functionName: "approve",
+      args: [liveChain.usycTellerAddress, amount],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: approvalTxHash });
+
+    const redeemTxHash = await walletClient.writeContract({
+      chain: undefined,
+      address: liveChain.usycTellerAddress,
+      abi: this.tellerAbi,
+      functionName: "redeem",
+      args: [amount, account.address, account.address],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: redeemTxHash });
+
+    const controllerUsdcAfter = await publicClient.readContract({
+      address: liveChain.usdcAddress,
+      abi: this.erc20Abi,
+      functionName: "balanceOf",
+      args: [account.address],
+    });
+    const returnedAmount = controllerUsdcAfter > controllerUsdcBefore ? controllerUsdcAfter - controllerUsdcBefore : amount;
+
+    const returnTxHash = await walletClient.writeContract({
+      chain: undefined,
+      address: liveChain.usdcAddress,
+      abi: this.erc20Abi,
+      functionName: "transfer",
+      args: [liveChain.coreAddress, returnedAmount],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: returnTxHash });
+    return returnTxHash;
   }
 }

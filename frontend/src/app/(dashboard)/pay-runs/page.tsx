@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useMockPayroll } from "@/components/MockPayrollProvider";
+import { usePayroll } from "@/components/PayrollProvider";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
 
@@ -31,18 +31,22 @@ function formatDate(value: string) {
 }
 
 export default function PayRunsPage() {
-  const { payRuns, createPayRun, loading, error } = useMockPayroll();
+  const { payRuns, createPayRun, loading, error } = usePayroll();
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const sortedPayRuns = [...payRuns].reverse();
+  const [createError, setCreateError] = useState<string | null>(null);
+  const sortedPayRuns = [...payRuns];
   const executedRuns = payRuns.filter((payRun) => payRun.status === "executed");
   const totalPaid = executedRuns.reduce((total, payRun) => total + payRun.totalAmount, 0);
 
   const handleCreatePayRun = async () => {
     setIsCreating(true);
+    setCreateError(null);
     try {
       const payRun = await createPayRun();
       setLastCreatedId(payRun.id);
+    } catch (creationError) {
+      setCreateError(creationError instanceof Error ? creationError.message : "Failed to create treasury pay run.");
     } finally {
       setIsCreating(false);
     }
@@ -57,7 +61,7 @@ export default function PayRunsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-slate-500">
-            Create draft pay runs, review multi-chain payout previews, and execute approved payrolls.
+            Create treasury-backed pay runs, stage them on-chain, and execute payroll directly from the Core treasury.
           </p>
         </div>
         <button
@@ -69,13 +73,13 @@ export default function PayRunsPage() {
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          {isCreating ? "Creating…" : "New Pay Run"}
+          {isCreating ? "Creating…" : "Create Treasury Pay Run"}
         </button>
       </div>
 
-      {error && (
+      {(error || createError) && (
         <Card className="border-red-200 bg-red-50/40 p-4">
-          <p className="text-sm font-semibold text-red-800">{error}</p>
+          <p className="text-sm font-semibold text-red-800">{createError || error}</p>
         </Card>
       )}
 
@@ -85,7 +89,7 @@ export default function PayRunsPage() {
             <div>
               <p className="text-sm font-semibold text-slate-900">Draft pay run created</p>
               <p className="mt-0.5 text-xs text-slate-500">
-                Review the new draft and approve it before execution.
+                Review the draft, approve it to create the on-chain pay run, then execute it from treasury.
               </p>
             </div>
             <Link href={`/pay-runs/${lastCreatedId}`} className="text-sm font-medium text-blue-600 hover:text-blue-700">
@@ -117,6 +121,14 @@ export default function PayRunsPage() {
       </div>
 
       <Card>
+        {sortedPayRuns.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <p className="text-sm font-semibold text-slate-900">No treasury pay runs yet</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Create the first live pay run after adding at least one active recipient.
+            </p>
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -174,6 +186,7 @@ export default function PayRunsPage() {
             </tbody>
           </table>
         </div>
+        )}
       </Card>
     </div>
   );

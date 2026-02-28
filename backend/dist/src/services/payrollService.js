@@ -82,7 +82,7 @@ function toPolicyResponse(policy) {
         lastRunAt: policy.lastRunAt,
     };
 }
-function toTreasuryResponse(balances, company) {
+function toTreasuryResponse(balances, company, options) {
     return {
         totalUsdc: (0, payroll_1.dollarsFromCents)(balances.reduce((total, balance) => total + balance.usdcCents, 0)),
         totalUsyc: (0, payroll_1.dollarsFromCents)(company.treasuryUsycCents),
@@ -98,7 +98,20 @@ function toTreasuryResponse(balances, company) {
             rebalanceThreshold: (0, payroll_1.dollarsFromCents)(company.rebalanceThresholdCents),
             payoutNoticeHours: company.payoutNoticeHours,
         },
+        source: options?.source ?? "db",
+        treasuryAddress: options?.treasuryAddress ?? null,
+        controllerAddress: options?.controllerAddress ?? null,
+        usycCustodyAddress: options?.usycCustodyAddress ?? null,
+        payRunAddress: options?.payRunAddress ?? null,
+        rebalanceAddress: options?.rebalanceAddress ?? null,
+        readError: options?.readError ?? null,
     };
+}
+function usdcBaseUnitsToDollars(value) {
+    return Number(value) / 1_000_000;
+}
+function usdcBaseUnitsToCents(value) {
+    return Number(value / 10000n);
 }
 class PayrollService {
     repository;
@@ -122,10 +135,22 @@ class PayrollService {
     getReferenceDate() {
         return this.config.seedDate;
     }
-    getDashboardSummary() {
+    getStoredTreasuryResponse(readError) {
+        const company = this.getCompany();
+        return toTreasuryResponse(this.repository.listTreasuryBalances(), company, {
+            source: "db",
+            treasuryAddress: this.config.liveChain?.coreAddress ?? null,
+            controllerAddress: this.config.adminWallet,
+            usycCustodyAddress: this.config.adminWallet,
+            payRunAddress: this.config.liveChain?.payRunAddress ?? null,
+            rebalanceAddress: this.config.liveChain?.rebalanceAddress ?? null,
+            readError: readError ?? null,
+        });
+    }
+    async getDashboardSummary() {
         const company = this.getCompany();
         const payRuns = this.repository.listPayRuns();
-        const balances = this.repository.listTreasuryBalances();
+        const treasury = await this.getTreasury();
         const employees = this.repository.listEmployees();
         const upcoming = payRuns.find((payRun) => payRun.status === "approved" || payRun.status === "draft");
         const lastExecuted = payRuns.find((payRun) => payRun.status === "executed");
@@ -133,13 +158,16 @@ class PayrollService {
         if (employees.some((employee) => !employee.chainPreference)) {
             alerts.push("Some recipients are missing a chain preference.");
         }
-        if (this.getHubBalance().usdcCents < company.rebalanceThresholdCents) {
+        if (treasury.source !== "chain") {
+            alerts.push("Treasury is showing the last stored snapshot because the live Arc RPC read failed.");
+        }
+        if ((0, payroll_1.centsFromDollars)(treasury.totalUsdc) < company.rebalanceThresholdCents) {
             alerts.push("Arc treasury balance is below the configured rebalance threshold.");
         }
         return {
             today: this.getReferenceDate(),
-            totalUsdc: (0, payroll_1.dollarsFromCents)(balances.reduce((total, balance) => total + balance.usdcCents, 0)),
-            totalUsyc: (0, payroll_1.dollarsFromCents)(company.treasuryUsycCents),
+            totalUsdc: treasury.totalUsdc,
+            totalUsyc: treasury.totalUsyc,
             upcomingPayRun: upcoming
                 ? {
                     id: upcoming.id,
@@ -217,6 +245,7 @@ class PayrollService {
         return toRecipientResponse(updated);
     }
     deleteRecipient(id) {
+        requireRecord(this.repository.getEmployee(id), "Recipient not found.");
         this.repository.deactivateEmployee(id);
         return { ok: true };
     }
@@ -264,6 +293,10 @@ class PayrollService {
             employee: employee ? toRecipientResponse(employee) : null,
         };
     }
+    getEmployeeProfile(id) {
+        const employee = requireRecord(this.repository.getEmployee(id), "Employee not found.");
+        return toRecipientResponse(employee);
+    }
     getMeSchedule(address) {
         const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
         const schedule = (0, payroll_1.getSchedule)(employee.scheduleId, this.repository.listSchedules());
@@ -275,6 +308,10 @@ class PayrollService {
     getMyTimeEntries(address, start, end) {
         const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
         return this.repository.listTimeEntries(employee.id, start, end).map(toTimeEntryResponse);
+    }
+    getEmployeeTimeEntries(id, start, end) {
+        requireRecord(this.repository.getEmployee(id), "Employee not found.");
+        return this.repository.listTimeEntries(id, start, end).map(toTimeEntryResponse);
     }
     clockIn(address, input) {
         const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
@@ -307,6 +344,10 @@ class PayrollService {
     }
     getMyEarnings(address) {
         const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
+        return this.getEmployeeEarnings(employee.id);
+    }
+    getEmployeeEarnings(id) {
+        const employee = requireRecord(this.repository.getEmployee(id), "Employee not found.");
         const payRuns = this.repository.listPayRuns();
         const payRunItems = this.repository.listPayRunItems();
         const schedules = this.repository.listSchedules();
@@ -365,6 +406,9 @@ class PayrollService {
     }
     createPayRun(input) {
         const previews = this.buildPayRunItems(input.periodStart, input.periodEnd, input.employeeIds);
+        if (previews.length === 0) {
+            throw new Error("Add at least one active recipient before creating a treasury pay run.");
+        }
         const payRunId = (0, ids_1.createId)("payrun");
         const now = (0, dates_1.nowIso)();
         const payRun = {
@@ -391,6 +435,9 @@ class PayrollService {
         const periodStart = input.periodStart ?? payRun.periodStart;
         const periodEnd = input.periodEnd ?? payRun.periodEnd;
         const previews = this.buildPayRunItems(periodStart, periodEnd, input.employeeIds);
+        if (previews.length === 0) {
+            throw new Error("A treasury pay run must contain at least one active recipient.");
+        }
         const items = this.createPayRunItemsRecords(id, previews);
         const updated = requireRecord(this.repository.updatePayRun(id, {
             periodStart,
@@ -401,11 +448,22 @@ class PayrollService {
         this.repository.replacePayRunItems(id, items);
         return toPayRunResponse(updated, items);
     }
-    approvePayRun(id) {
+    async approvePayRun(id) {
         const payRun = requireRecord(this.repository.getPayRun(id), "Pay run not found.");
         if (payRun.status !== "draft")
             throw new Error("Only draft pay runs can be approved.");
+        const items = this.repository.listPayRunItems(id);
+        if (items.length === 0 || payRun.totalAmountCents <= 0) {
+            throw new Error("A treasury pay run must contain at least one payable recipient before approval.");
+        }
+        const onChainId = payRun.onChainId ?? await this.chainService.createPayRun({ payRun, items });
+        for (const item of items) {
+            this.repository.updatePayRunItem(item.id, {
+                status: "ready",
+            });
+        }
         const updated = requireRecord(this.repository.updatePayRun(id, {
+            onChainId,
             status: "approved",
             updatedAt: (0, dates_1.nowIso)(),
         }), "Pay run not found.");
@@ -413,6 +471,23 @@ class PayrollService {
     }
     async ensureLiquidity(requiredCents) {
         const company = this.getCompany();
+        if (this.config.chainMode === "live") {
+            const snapshot = await this.chainService.getTreasurySnapshot();
+            if (!snapshot)
+                return null;
+            const treasuryUsdcCents = usdcBaseUnitsToCents(snapshot.treasuryUsdcBaseUnits);
+            if (treasuryUsdcCents >= requiredCents)
+                return null;
+            if (!company.autoRedeemEnabled) {
+                throw new Error("Insufficient USDC in the Arc treasury and auto-redeem is disabled.");
+            }
+            const shortfall = requiredCents - treasuryUsdcCents;
+            if (usdcBaseUnitsToCents(snapshot.controllerUsycBaseUnits) < shortfall) {
+                throw new Error("Insufficient USDC in treasury and insufficient CEO-managed USYC to top up payroll.");
+            }
+            await this.chainService.rebalanceUsycToUsdc(shortfall);
+            return shortfall;
+        }
         const hub = this.getHubBalance();
         if (hub.usdcCents >= requiredCents)
             return null;
@@ -436,40 +511,106 @@ class PayrollService {
             throw new Error("Only approved pay runs can be executed.");
         const items = this.repository.listPayRunItems(id);
         await this.ensureLiquidity(payRun.totalAmountCents);
-        const onChainId = await this.chainService.createPayRun({
-            payRun,
-            items,
-        });
+        const onChainId = payRun.onChainId ?? await this.chainService.createPayRun({ payRun, items });
         const execution = await this.chainService.executePayRun({
             ...payRun,
             onChainId,
         });
-        const hub = this.getHubBalance();
-        hub.usdcCents -= payRun.totalAmountCents;
-        this.repository.updateTreasuryBalance(hub.chainId, hub.usdcCents);
+        const hasCrossChainItems = items.some((item) => item.destinationChainId !== this.config.arcChainId);
+        if (this.config.chainMode !== "live") {
+            const hub = this.getHubBalance();
+            hub.usdcCents -= payRun.totalAmountCents;
+            this.repository.updateTreasuryBalance(hub.chainId, hub.usdcCents);
+        }
         for (const item of items) {
+            const isArcItem = item.destinationChainId === this.config.arcChainId;
             this.repository.updatePayRunItem(item.id, {
-                status: "paid",
-                txHash: item.destinationChainId === this.config.arcChainId ? execution.txHash : `bridge-${execution.txHash}`,
+                status: isArcItem ? "paid" : "processing",
+                txHash: isArcItem ? execution.txHash : `bridge-${execution.txHash}`,
             });
         }
         const updated = requireRecord(this.repository.updatePayRun(id, {
             onChainId: execution.onChainId,
-            status: "executed",
-            executedAt: (0, dates_1.nowIso)(),
+            status: hasCrossChainItems ? "processing" : "executed",
+            executedAt: hasCrossChainItems ? null : (0, dates_1.nowIso)(),
             txHash: execution.txHash,
             updatedAt: (0, dates_1.nowIso)(),
         }), "Pay run not found.");
         return toPayRunResponse(updated, this.repository.listPayRunItems(id));
     }
-    getTreasury() {
-        return toTreasuryResponse(this.repository.listTreasuryBalances(), this.getCompany());
+    async finalizePayRun(id) {
+        const payRun = requireRecord(this.repository.getPayRun(id), "Pay run not found.");
+        if (payRun.status !== "processing")
+            throw new Error("Only processing pay runs can be finalized.");
+        await this.chainService.finalizePayRun(payRun);
+        for (const item of this.repository.listPayRunItems(id)) {
+            if (item.status !== "paid") {
+                this.repository.updatePayRunItem(item.id, {
+                    status: "paid",
+                });
+            }
+        }
+        const updated = requireRecord(this.repository.updatePayRun(id, {
+            status: "executed",
+            executedAt: (0, dates_1.nowIso)(),
+            updatedAt: (0, dates_1.nowIso)(),
+        }), "Pay run not found.");
+        return toPayRunResponse(updated, this.repository.listPayRunItems(id));
+    }
+    async getTreasury() {
+        const company = this.getCompany();
+        if (this.config.chainMode === "live") {
+            try {
+                const snapshot = await this.chainService.getTreasurySnapshot();
+                if (snapshot) {
+                    return {
+                        totalUsdc: usdcBaseUnitsToDollars(snapshot.treasuryUsdcBaseUnits),
+                        totalUsyc: usdcBaseUnitsToDollars(snapshot.controllerUsycBaseUnits),
+                        chainBalances: [
+                            {
+                                chainId: this.config.arcChainId,
+                                chainName: "Arc Testnet",
+                                usdcBalance: usdcBaseUnitsToDollars(snapshot.treasuryUsdcBaseUnits),
+                                isHub: true,
+                            },
+                        ],
+                        autoPolicy: {
+                            autoRebalanceEnabled: company.autoRebalanceEnabled,
+                            autoRedeemEnabled: company.autoRedeemEnabled,
+                            rebalanceThreshold: (0, payroll_1.dollarsFromCents)(company.rebalanceThresholdCents),
+                            payoutNoticeHours: company.payoutNoticeHours,
+                        },
+                        source: "chain",
+                        treasuryAddress: snapshot.coreAddress,
+                        controllerAddress: snapshot.controllerAddress,
+                        usycCustodyAddress: snapshot.controllerAddress,
+                        payRunAddress: snapshot.payRunAddress,
+                        rebalanceAddress: snapshot.rebalanceAddress,
+                        readError: null,
+                    };
+                }
+            }
+            catch (error) {
+                return this.getStoredTreasuryResponse(error instanceof Error ? error.message : "Live Arc RPC read failed.");
+            }
+        }
+        return toTreasuryResponse(this.repository.listTreasuryBalances(), company);
     }
     async manualRebalance(input) {
         const amountCents = (0, payroll_1.centsFromDollars)(input.amount);
         const company = this.getCompany();
         const hub = this.getHubBalance();
         let txHash = "";
+        if (this.config.chainMode === "live") {
+            txHash =
+                input.direction === "usdc_to_usyc"
+                    ? await this.chainService.rebalanceUsdcToUsyc(amountCents)
+                    : await this.chainService.rebalanceUsycToUsdc(amountCents);
+            return {
+                txHash,
+                treasury: await this.getTreasury(),
+            };
+        }
         if (input.direction === "usdc_to_usyc") {
             if (hub.usdcCents < amountCents)
                 throw new Error("Insufficient USDC in treasury.");
@@ -488,7 +629,7 @@ class PayrollService {
         this.repository.updateTreasuryBalance(hub.chainId, hub.usdcCents);
         return {
             txHash,
-            treasury: this.getTreasury(),
+            treasury: await this.getTreasury(),
         };
     }
     updateAutoPolicy(input) {

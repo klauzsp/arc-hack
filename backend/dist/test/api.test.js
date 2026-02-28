@@ -67,6 +67,7 @@ function createTestHarness() {
     });
     strict_1.default.equal(approveResponse.statusCode, 200);
     strict_1.default.equal(approveResponse.json().status, "approved");
+    strict_1.default.ok(typeof approveResponse.json().onChainId === "string");
     const executeResponse = await app.inject({
         method: "POST",
         url: `/pay-runs/${createdPayRun.id}/execute`,
@@ -76,6 +77,25 @@ function createTestHarness() {
     const executedPayRun = executeResponse.json();
     strict_1.default.equal(executedPayRun.status, "executed");
     strict_1.default.ok(typeof executedPayRun.txHash === "string");
+    await app.close();
+});
+(0, node_test_1.default)("admin can deactivate a recipient from the live recipient list", async () => {
+    const { app, employee } = createTestHarness();
+    const deleteResponse = await app.inject({
+        method: "DELETE",
+        url: `/recipients/${employee.id}`,
+        headers: { authorization: "Bearer admin-token" },
+    });
+    strict_1.default.equal(deleteResponse.statusCode, 200);
+    strict_1.default.equal(deleteResponse.json().ok, true);
+    const recipientsResponse = await app.inject({
+        method: "GET",
+        url: "/recipients",
+        headers: { authorization: "Bearer admin-token" },
+    });
+    strict_1.default.equal(recipientsResponse.statusCode, 200);
+    const recipients = recipientsResponse.json();
+    strict_1.default.equal(recipients.some((recipient) => recipient.id === employee.id), false);
     await app.close();
 });
 (0, node_test_1.default)("employee earnings and time routes are scoped to the signed-in wallet", async () => {
