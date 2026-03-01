@@ -23,3 +23,5 @@ docker run -p 3000:3000 arc-frontend
    - Backend → Variables → `BACKEND_CORS_ORIGIN` = `https://your-frontend.up.railway.app` (or comma-separated list including it).
 
 4. **Health**: Railway uses the exposed port; no custom health path needed. The app listens on `PORT` and `0.0.0.0`.
+
+5. **Start command**: The image uses `ENTRYPOINT ["node", "server.js"]` so the app always runs the Next server. If you see "The executable pnpm could not be found", clear any custom **Start Command** in Railway (Settings → Service → Start Command) so Railway uses the image default instead of inferring `pnpm start`.

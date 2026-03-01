@@ -62,4 +62,5 @@ USER nextjs
 WORKDIR /app/frontend
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+# ENTRYPOINT so Railway cannot override with pnpm start / npm start
+ENTRYPOINT ["node", "server.js"]
