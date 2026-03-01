@@ -53,14 +53,15 @@ export default function PayRunsPage() {
   };
 
   if (loading && payRuns.length === 0) {
-    return <div className="text-sm text-slate-500">Loading pay runs…</div>;
+    return <div className="text-sm text-white/50">Loading pay runs…</div>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-xl font-bold tracking-tight text-white">Pay Runs</h2>
+          <p className="mt-1 text-sm text-white/50">
             Create treasury-backed pay runs, stage them on-chain, and execute payroll directly from the Core treasury.
           </p>
         </div>
@@ -68,7 +69,7 @@ export default function PayRunsPage() {
           type="button"
           onClick={() => void handleCreatePayRun()}
           disabled={isCreating}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-semibold text-[#0d0e0f] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -78,53 +79,53 @@ export default function PayRunsPage() {
       </div>
 
       {(error || createError) && (
-        <Card className="border-red-200 bg-red-50/40 p-4">
-          <p className="text-sm font-semibold text-red-800">{createError || error}</p>
+        <Card className="border-red-500/20 bg-red-500/10 p-4">
+          <p className="text-sm font-semibold text-red-300">{createError || error}</p>
         </Card>
       )}
 
       {lastCreatedId && (
-        <Card className="border-blue-200 bg-blue-50/40 p-4">
+        <Card className="border-[#fc72ff]/20 bg-[#fc72ff]/[0.06] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-slate-900">Draft pay run created</p>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="text-sm font-semibold text-white">Draft pay run created</p>
+              <p className="mt-0.5 text-xs text-white/50">
                 Review the draft, approve it to create the on-chain pay run, then execute it from treasury.
               </p>
             </div>
-            <Link href={`/pay-runs/${lastCreatedId}`} className="text-sm font-medium text-blue-600 hover:text-blue-700">
+            <Link href={`/pay-runs/${lastCreatedId}`} className="text-sm font-medium text-[#fc72ff] hover:text-[#fc72ff]/80">
               Open draft
             </Link>
           </div>
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-4 lg:grid-cols-4">
         <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Total Runs</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{payRuns.length}</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-white/40">Total Runs</p>
+          <p className="mt-1 text-xl font-bold text-white">{payRuns.length}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Completed</p>
-          <p className="mt-1 text-xl font-bold text-emerald-700">{executedRuns.length}</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-white/40">Completed</p>
+          <p className="mt-1 text-xl font-bold text-emerald-400">{executedRuns.length}</p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Approved</p>
-          <p className="mt-1 text-xl font-bold text-blue-700">
+          <p className="text-xs font-medium uppercase tracking-wider text-white/40">Approved</p>
+          <p className="mt-1 text-xl font-bold text-[#fc72ff]">
             {payRuns.filter((payRun) => payRun.status === "approved").length}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Total Disbursed</p>
-          <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(totalPaid)}</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-white/40">Total Disbursed</p>
+          <p className="mt-1 text-xl font-bold text-white">{formatCurrency(totalPaid)}</p>
         </Card>
       </div>
 
       <Card>
         {sortedPayRuns.length === 0 ? (
           <div className="px-6 py-12 text-center">
-            <p className="text-sm font-semibold text-slate-900">No treasury pay runs yet</p>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="text-sm font-semibold text-white">No treasury pay runs yet</p>
+            <p className="mt-1 text-sm text-white/50">
               Create the first live pay run after adding at least one active recipient.
             </p>
           </div>
@@ -132,24 +133,24 @@ export default function PayRunsPage() {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Period</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Amount</th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Recipients</th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Tx Hash</th>
+              <tr className="border-b border-white/[0.06]">
+                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Period</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Status</th>
+                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Amount</th>
+                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Recipients</th>
+                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Tx Hash</th>
                 <th className="px-5 py-3.5" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-white/[0.04]">
               {sortedPayRuns.map((payRun) => (
-                <tr key={payRun.id} className="transition-colors hover:bg-slate-50/50">
+                <tr key={payRun.id} className="transition-colors hover:bg-white/[0.03]">
                   <td className="whitespace-nowrap px-5 py-4">
-                    <p className="text-sm font-medium text-slate-900">
+                    <p className="text-sm font-medium text-white">
                       {formatDate(payRun.periodStart)} - {formatDate(payRun.periodEnd)}
                     </p>
                     {payRun.executedAt && (
-                      <p className="mt-0.5 text-xs text-slate-400">
+                      <p className="mt-0.5 text-xs text-white/40">
                         Executed {new Date(payRun.executedAt).toLocaleDateString("en-US")}
                       </p>
                     )}
@@ -159,21 +160,21 @@ export default function PayRunsPage() {
                       {payRun.status.charAt(0).toUpperCase() + payRun.status.slice(1)}
                     </Badge>
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-right text-sm font-semibold text-slate-900">
+                  <td className="whitespace-nowrap px-5 py-4 text-right text-sm font-semibold text-white">
                     {formatCurrency(payRun.totalAmount)}
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
-                    <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-medium text-slate-600">
+                    <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-white/[0.08] px-2 text-xs font-medium text-white/60">
                       {payRun.recipientCount}
                     </span>
                   </td>
-                  <td className="whitespace-nowrap px-5 py-4 text-right font-mono text-xs text-slate-400">
+                  <td className="whitespace-nowrap px-5 py-4 text-right font-mono text-xs text-white/40">
                     {payRun.txHash ?? "--"}
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right">
                     <Link
                       href={`/pay-runs/${payRun.id}`}
-                      className="inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#fc72ff] transition-colors hover:bg-[#fc72ff]/[0.08]"
                     >
                       View
                       <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

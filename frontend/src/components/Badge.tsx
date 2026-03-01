@@ -5,17 +5,15 @@ export function Badge({
   children: React.ReactNode;
   variant?: "default" | "success" | "warning" | "error" | "info";
 }) {
-  const classes = {
-    default: "bg-slate-100 text-slate-700 ring-slate-200",
-    success: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    warning: "bg-amber-50 text-amber-700 ring-amber-200",
-    error: "bg-red-50 text-red-700 ring-red-200",
-    info: "bg-blue-50 text-blue-700 ring-blue-200",
+  const styles: Record<string, string> = {
+    default: "bg-white/[0.08] text-white/60 ring-white/[0.10]",
+    success: "bg-emerald-500/15 text-emerald-400 ring-emerald-500/20",
+    warning: "bg-amber-500/15 text-amber-400 ring-amber-500/20",
+    error:   "bg-red-500/15   text-red-400   ring-red-500/20",
+    info:    "bg-[#fc72ff]/10 text-[#fc72ff] ring-[#fc72ff]/20",
   };
   return (
-    <span
-      className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${classes[variant]}`}
-    >
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${styles[variant]}`}>
       {children}
     </span>
   );

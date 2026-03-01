@@ -189,7 +189,7 @@ function CircleLoginPageContent() {
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-700">Arc Payroll</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Arc Payroll</p>
             <h1 className="mt-2 text-3xl font-semibold text-slate-900">Circle employee sign-in</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
               Employees who onboarded with a Circle wallet can sign in here with Google and go straight to payroll.
@@ -200,9 +200,9 @@ function CircleLoginPageContent() {
           </Link>
         </div>
 
-        <Card className="border border-slate-200 bg-white/90 p-6 shadow-sm">
+        <Card className="border border-slate-200 bg-white p-6 shadow-sm">
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-medium text-slate-900">Google sign-in</p>
               <p className="mt-1 text-sm text-slate-500">
                 This only works for employees whose payout wallet was created through Circle onboarding.
@@ -225,7 +225,7 @@ function CircleLoginPageContent() {
               type="button"
               onClick={() => void startGoogleSignIn()}
               disabled={loading || !circleConfigured}
-              className="inline-flex w-full items-center justify-center gap-3 rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="inline-flex w-full items-center justify-center gap-3 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               <span className="text-base">G</span>
               {loading ? "Working…" : "Continue with Google"}

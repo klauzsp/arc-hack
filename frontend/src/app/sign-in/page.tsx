@@ -34,7 +34,7 @@ export default function SignInPage() {
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-700">Arc Payroll</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Arc Payroll</p>
             <h1 className="mt-2 text-3xl font-semibold text-slate-900">Sign In</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
               Choose an existing EVM wallet or use Circle Google sign-in. Your payroll session stays active until you sign out here.
@@ -79,14 +79,14 @@ export default function SignInPage() {
                 <>
                   <Link
                     href={dashboardHref(role)}
-                    className="inline-flex items-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+                    className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
                   >
                     Open Dashboard
                   </Link>
                   <button
                     type="button"
                     onClick={() => signOut()}
-                    className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                    className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     Sign Out
                   </button>
@@ -111,7 +111,7 @@ export default function SignInPage() {
                   const wrongChain = Boolean(chain?.unsupported) || chain?.id !== ARC_TESTNET_CHAIN_ID;
 
                   if (!ready) {
-                    return <div className="h-11 w-full animate-pulse rounded-lg bg-slate-100" aria-hidden />;
+                    return <div className="h-11 w-full animate-pulse rounded-xl bg-slate-100" aria-hidden />;
                   }
 
                   return (
@@ -120,7 +120,7 @@ export default function SignInPage() {
                         <button
                           type="button"
                           onClick={() => openConnectModal()}
-                          className="inline-flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                          className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                         >
                           Connect Wallet
                         </button>
@@ -128,7 +128,7 @@ export default function SignInPage() {
                         <button
                           type="button"
                           onClick={() => openChainModal()}
-                          className="inline-flex w-full items-center justify-center rounded-lg bg-amber-500 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-amber-600"
+                          className="inline-flex w-full items-center justify-center rounded-xl bg-amber-500 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-amber-600"
                         >
                           Switch to Arc Testnet
                         </button>
@@ -137,7 +137,7 @@ export default function SignInPage() {
                           <button
                             type="button"
                             onClick={() => openAccountModal()}
-                            className="inline-flex w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
+                            className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
                           >
                             Connected: {shortAddress(account.address)}
                           </button>
@@ -147,7 +147,7 @@ export default function SignInPage() {
                               void signIn();
                             }}
                             disabled={Boolean(token) || isAuthenticating}
-                            className="inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            className="inline-flex w-full items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                           >
                             {isAuthenticating ? "Signing In…" : token ? "Already Signed In" : "Sign In with Wallet"}
                           </button>
@@ -169,12 +169,12 @@ export default function SignInPage() {
               {circleGoogleEnabled ? (
                 <Link
                   href="/circle-login?returnTo=/my-earnings"
-                  className="inline-flex w-full items-center justify-center rounded-lg bg-teal-700 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-teal-800"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-teal-800"
                 >
                   Continue with Google
                 </Link>
               ) : (
-                <div className="inline-flex w-full items-center justify-center rounded-lg bg-slate-300 px-4 py-3 text-sm font-medium text-white">
+                <div className="inline-flex w-full items-center justify-center rounded-xl bg-slate-300 px-4 py-3 text-sm font-medium text-white">
                   Continue with Google
                 </div>
               )}
@@ -188,7 +188,7 @@ export default function SignInPage() {
         </div>
 
         {error && (
-          <Card className="border-red-200 bg-red-50/40 p-4">
+          <Card className="border-red-200 bg-red-50 p-4">
             <p className="text-sm font-semibold text-red-800">{error}</p>
           </Card>
         )}

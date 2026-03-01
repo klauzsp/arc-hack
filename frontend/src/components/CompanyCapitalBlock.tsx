@@ -15,7 +15,6 @@ import {
   USYC_ADDRESS,
   USYC_TELLER_ABI,
   USYC_TELLER_ADDRESS,
-  explorerAddressUrl,
   explorerTxUrl,
 } from "@/lib/contracts";
 
@@ -45,11 +44,6 @@ function fmtAmount(value: bigint | undefined) {
   });
 }
 
-function shortAddress(address: string | null | undefined) {
-  if (!address) return "—";
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
 function StepButton({
   label,
   disabled,
@@ -66,14 +60,14 @@ function StepButton({
       ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
       : variant === "ghost"
         ? "bg-slate-100 text-slate-400"
-        : "bg-blue-600 text-white hover:bg-blue-700";
+        : "bg-slate-900 text-white hover:bg-slate-800";
 
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:hover:bg-inherit ${className}`}
+      className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:hover:bg-inherit ${className}`}
     >
       {label}
     </button>
@@ -132,8 +126,6 @@ export function CompanyCapitalBlock() {
 
   const isArcChain = chainId === ARC_TESTNET_CHAIN_ID;
   const isCeo = !!address && address.toLowerCase() === CEO_ADDRESS.toLowerCase();
-  const treasuryAddress = treasury?.treasuryAddress ?? CORE_ADDRESS;
-  const custodyAddress = treasury?.usycCustodyAddress ?? CEO_ADDRESS;
 
   const depositParsed = safeParse(depositAmount);
   const convertParsed = safeParse(convertAmount);
@@ -382,74 +374,42 @@ export function CompanyCapitalBlock() {
 
   if (!isCeo) {
     return (
-      <Card className="p-6">
-        <h3 className="text-sm font-semibold text-slate-900">Treasury Controls</h3>
-        <p className="mt-2 text-sm text-slate-500">Only the CEO wallet can move funds between the treasury and the USYC Teller flow.</p>
+      <Card className="p-6 sm:p-8">
+        <h3 className="text-base font-semibold text-slate-900">Company capital</h3>
+        <p className="mt-2 text-sm text-slate-500">Only the company’s main wallet can add funds or move money between the treasury and yield.</p>
       </Card>
     );
   }
 
   return (
     <div className="space-y-6">
-      <Card className="p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Live Treasury Control</h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Deposits land in the Core treasury contract. Payroll executes from treasury. USYC conversions use the CEO
-              wallet as the whitelisted Teller account, then funds are returned to treasury before payroll.
-            </p>
-          </div>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-            {treasury?.source === "chain" ? "Chain-backed" : "API-backed"}
-          </span>
+      <Card className="p-6 sm:p-8">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-slate-900">Balances</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Add USDC to the treasury, move idle cash into yield (USYC), or redeem back when you need it for payroll.
+          </p>
         </div>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-3">
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Treasury Contract</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">{shortAddress(treasuryAddress)}</p>
-            <a className="mt-2 inline-block text-xs text-blue-700 underline" href={explorerAddressUrl(treasuryAddress)} target="_blank" rel="noreferrer">
-              View Core contract
-            </a>
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-400">Treasury USDC</p>
+            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-900" title={fmtAmount(treasuryUsdcBalance)}>{fmtAmount(treasuryUsdcBalance)}</p>
           </div>
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">USYC Custody</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">{shortAddress(custodyAddress)}</p>
-            <a className="mt-2 inline-block text-xs text-blue-700 underline" href={explorerAddressUrl(custodyAddress)} target="_blank" rel="noreferrer">
-              View CEO wallet
-            </a>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-400">Your wallet USDC</p>
+            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-900" title={fmtAmount(walletUsdcBalance)}>{fmtAmount(walletUsdcBalance)}</p>
           </div>
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Controller</p>
-            <p className="mt-2 text-lg font-semibold text-slate-900">{shortAddress(treasury?.controllerAddress ?? CEO_ADDRESS)}</p>
-            <p className="mt-2 text-xs text-slate-500">Connected wallet must match the configured CEO controller.</p>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-200 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Treasury USDC</p>
-            <p className="mt-2 text-2xl font-bold text-slate-900">{fmtAmount(treasuryUsdcBalance)}</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">CEO Wallet USDC</p>
-            <p className="mt-2 text-2xl font-bold text-slate-900">{fmtAmount(walletUsdcBalance)}</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">CEO Wallet USYC</p>
-            <p className="mt-2 text-2xl font-bold text-slate-900">{fmtAmount(walletUsycBalance)}</p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-400">Your wallet USYC</p>
+            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-900" title={fmtAmount(walletUsycBalance)}>{fmtAmount(walletUsycBalance)}</p>
           </div>
         </div>
       </Card>
 
-      <Card className="p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">Fund Treasury</h3>
-            <p className="mt-1 text-xs text-slate-500">Deposit USDC from the connected CEO wallet into the Core treasury contract.</p>
-          </div>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Wallet → Treasury</span>
+      <Card className="p-6 sm:p-8">
+        <div>
+          <h3 className="text-base font-semibold text-slate-900">Add money to treasury</h3>
+          <p className="mt-1 text-sm text-slate-500">Move USDC from your connected wallet into the treasury so pay runs can use it.</p>
         </div>
 
         <div className="mt-4">
@@ -467,20 +427,20 @@ export function CompanyCapitalBlock() {
                 treasuryDepositWrite.reset();
               }}
               placeholder="0.00"
-              className="w-full rounded-lg border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USDC</span>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-5 flex flex-wrap gap-3">
           <StepButton
             label={
               treasuryDepositBusy
                 ? treasuryDepositReceipt.isLoading
                   ? "Confirming…"
-                  : "Depositing…"
-                : "Deposit to Treasury"
+                  : "Adding…"
+                : "Add to treasury"
             }
             onClick={handleTreasuryDeposit}
             disabled={treasuryDepositBusy || !treasuryDepositReady}
@@ -493,21 +453,21 @@ export function CompanyCapitalBlock() {
             isConfirmed={treasuryDepositReceipt.isSuccess && lastAction === "deposit_treasury"}
             error={treasuryDepositWrite.error}
             hash={treasuryDepositWrite.data}
-            success="Treasury deposit confirmed."
+            success="Added to treasury."
           />
         </div>
       </Card>
 
-      <Card className="p-6">
+      <Card className="p-6 sm:p-8">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Convert Treasury USDC to USYC</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Exact Teller flow: pull USDC from treasury to the CEO wallet, approve the Teller, then deposit into USYC.
+          <h3 className="text-base font-semibold text-slate-900">Move idle cash into yield (USYC)</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Move USDC from the treasury into your wallet, then deposit it into USYC to earn yield.
           </p>
         </div>
 
-        <div className="mt-4">
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">USDC Amount</label>
+        <div className="mt-5">
+          <label className="mb-2 block text-sm font-medium text-slate-700">Amount (USDC)</label>
           <div className="relative">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
             <input
@@ -517,16 +477,13 @@ export function CompanyCapitalBlock() {
               value={convertAmount}
               onChange={(event) => resetConvertFlow(event.target.value)}
               placeholder="0.00"
-              className="w-full rounded-lg border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USDC</span>
           </div>
-          {convertParsed > zero && (
-            <p className="mt-1.5 text-xs text-slate-400">Teller USDC allowance: {fmtAmount(usdcAllowance)} USDC</p>
-          )}
         </div>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <div className="mt-5 grid gap-3 lg:grid-cols-3">
           <StepButton
             label={pullBusy ? (pullReceipt.isLoading ? "Confirming…" : "Pulling…") : "1. Pull from Treasury"}
             onClick={handlePull}
@@ -553,7 +510,7 @@ export function CompanyCapitalBlock() {
             isConfirmed={pullReceipt.isSuccess && lastAction === "pull_treasury"}
             error={pullWrite.error}
             hash={pullWrite.data}
-            success="USDC pulled from the treasury into the CEO wallet."
+            success="USDC moved to your wallet."
           />
           <StatusRow
             isConfirming={approveUsdcReceipt.isLoading}
@@ -572,11 +529,11 @@ export function CompanyCapitalBlock() {
         </div>
       </Card>
 
-      <Card className="p-6">
+      <Card className="p-6 sm:p-8">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Redeem USYC Back to Treasury</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Exact Teller flow: approve USYC, redeem to the CEO wallet, then send the redeemed USDC back into Core so payroll can pay from treasury.
+          <h3 className="text-base font-semibold text-slate-900">Redeem USYC back for payroll</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Redeem USYC to USDC in your wallet, then send that USDC back to the treasury so pay runs can use it.
           </p>
         </div>
 
@@ -592,7 +549,7 @@ export function CompanyCapitalBlock() {
                 value={redeemAmount}
                 onChange={(event) => resetRedeemFlow(event.target.value)}
                 placeholder="0.00"
-                className="w-full rounded-lg border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USYC</span>
             </div>
@@ -612,7 +569,7 @@ export function CompanyCapitalBlock() {
                 value={returnAmount}
                 onChange={(event) => resetReturnFlow(event.target.value)}
                 placeholder="0.00"
-                className="w-full rounded-lg border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USDC</span>
             </div>

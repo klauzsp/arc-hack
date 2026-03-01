@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePayroll } from "@/components/PayrollProvider";
 import { Card } from "@/components/Card";
-import { FrontendConfigCard } from "@/components/FrontendConfigCard";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
 
@@ -43,22 +42,25 @@ export default function DashboardPage() {
   const issueCount = dashboard?.alerts.length ?? recipients.filter((recipient) => !recipient.chainPreference).length;
 
   if (loading && !dashboard) {
-    return <div className="text-sm text-slate-500">Loading dashboard…</div>;
+    return <div className="text-sm text-white/50">Loading dashboard…</div>;
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <div className="mb-8 flex min-w-0 flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-500">
-            Multi-chain USDC. One liquidity surface. Arc routes and settles.
+          <h2 className="text-xl font-bold tracking-tight text-white">Overview</h2>
+          <p className="mt-1 text-sm text-white/50">
+            Treasury balance, upcoming pay runs, and system health across all chains.
           </p>
-          <p className="mt-1 text-xs text-slate-400">As of {formatDate(today)}</p>
         </div>
-        <Badge variant="info">{recipients.length} active recipients</Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="info">{recipients.length} recipients</Badge>
+          <span className="text-xs font-medium text-white/40">{formatDate(today)}</span>
+        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Total USDC"
           value={formatCurrency(treasury?.totalUsdc ?? 0)}
@@ -93,38 +95,38 @@ export default function DashboardPage() {
           value={String(issueCount)}
           subtitle={issueCount === 0 ? "No variances or missing setup" : "Recipients need review"}
           icon="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-          valueClassName={issueCount === 0 ? "text-emerald-700" : "text-amber-700"}
+          valueClassName={issueCount === 0 ? "text-emerald-400" : "text-amber-400"}
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">Recent Pay Runs</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Review the latest payroll drafts, approvals, and executions.</p>
+      <div className="mt-6 grid gap-5 lg:grid-cols-3">
+        <Card className="min-w-0 lg:col-span-2">
+          <div className="flex flex-wrap items-center justify-center gap-4 border-b border-white/[0.06] px-6 py-5 text-center sm:justify-between sm:text-left">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-white">Recent Pay Runs</h2>
+              <p className="mt-1 text-sm text-white/50">Review the latest payroll drafts, approvals, and executions.</p>
             </div>
-            <Link href="/pay-runs" className="text-xs font-medium text-blue-600 hover:text-blue-700">
+            <Link href="/pay-runs" className="shrink-0 text-sm font-medium text-[#fc72ff] hover:text-[#fc72ff]/80">
               View all
             </Link>
           </div>
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-white/[0.04]">
             {recentRuns.map((payRun) => (
               <Link
                 key={payRun.id}
                 href={`/pay-runs/${payRun.id}`}
-                className="flex items-center justify-between px-5 py-3.5 transition-colors hover:bg-slate-50"
+                className="flex min-w-0 items-center justify-between gap-4 px-6 py-4 transition-colors hover:bg-white/[0.03]"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">
-                    {formatDate(payRun.periodStart)} - {formatDate(payRun.periodEnd)}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-white">
+                    {formatDate(payRun.periodStart)} – {formatDate(payRun.periodEnd)}
                   </p>
-                  <p className="mt-0.5 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-white/40">
                     {payRun.recipientCount} recipients
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold text-slate-900">
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="text-sm font-semibold tabular-nums text-white">
                     {formatCurrency(payRun.totalAmount)}
                   </span>
                   <Badge variant={statusVariant(payRun.status)}>
@@ -136,31 +138,34 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <Card>
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-slate-900">Chain Balances</h2>
-            <Link href="/treasury" className="text-xs font-medium text-blue-600 hover:text-blue-700">
+        <Card className="min-w-0">
+          <div className="flex flex-wrap items-center justify-center gap-4 border-b border-white/[0.06] px-6 py-5 text-center sm:justify-between sm:text-left">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-white">Chain Balances</h2>
+              <p className="mt-1 text-sm text-white/50">USDC by network</p>
+            </div>
+            <Link href="/treasury" className="shrink-0 text-sm font-medium text-[#fc72ff] hover:text-[#fc72ff]/80">
               Treasury
             </Link>
           </div>
-          <div className="space-y-3 p-5">
+          <div className="space-y-4 p-6">
             {chainBalances.map((chain) => {
               const percent = treasury?.totalUsdc ? Math.round((chain.usdcBalance / treasury.totalUsdc) * 100) : 0;
               return (
-                <div key={chain.chainId}>
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-blue-500" />
-                      <span className="font-medium text-slate-700">{chain.chainName}</span>
+                <div key={chain.chainId} className="min-w-0">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-[#fc72ff]" />
+                      <span className="truncate font-medium text-white/80">{chain.chainName}</span>
                     </div>
-                    <span className="font-semibold text-slate-900">
+                    <span className="shrink-0 font-semibold tabular-nums text-white">
                       {formatCurrency(chain.usdcBalance)}
                     </span>
                   </div>
-                  <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-100">
-                    <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${percent}%` }} />
+                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                    <div className="h-1.5 rounded-full bg-gradient-to-r from-[#fc72ff] to-[#7b61ff] transition-all" style={{ width: `${percent}%` }} />
                   </div>
-                  <p className="mt-0.5 text-right text-[10px] text-slate-400">{percent}%</p>
+                  <p className="mt-1 text-right text-xs text-white/40">{percent}%</p>
                 </div>
               );
             })}
@@ -168,28 +173,28 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <Card className="p-5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <Card className="mt-5 p-5 sm:p-6">
+        <div className="flex min-w-0 flex-wrap items-center justify-center gap-4 text-center">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
-              <svg className="h-5 w-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15">
+              <svg className="h-5 w-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
               </svg>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-900">Arc settlement status</p>
-              <p className="text-xs text-slate-500">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white">Arc settlement status</p>
+              <p className="mt-0.5 text-xs text-white/50">
                 Treasury routing and payroll previews are healthy across {chainBalances.length} chains.
               </p>
             </div>
           </div>
-          <Badge variant={issueCount === 0 ? "success" : "warning"}>
-            {issueCount === 0 ? "Healthy" : `${issueCount} attention needed`}
-          </Badge>
+          <span className="shrink-0">
+            <Badge variant={issueCount === 0 ? "success" : "warning"}>
+              {issueCount === 0 ? "Healthy" : `${issueCount} attention needed`}
+            </Badge>
+          </span>
         </div>
       </Card>
-
-      <FrontendConfigCard />
     </div>
   );
 }

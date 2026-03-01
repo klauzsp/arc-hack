@@ -39,6 +39,8 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const inputCls = "w-full rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20 disabled:bg-white/[0.03] disabled:text-white/30 disabled:cursor-not-allowed";
+
 export default function ManageWalletPage() {
   const { token, role, employee, circleAuth } = useAuthSession();
   const [destinationAddress, setDestinationAddress] = useState("");
@@ -235,7 +237,7 @@ export default function ManageWalletPage() {
   if (role !== "employee" || !employee) {
     return (
       <Card className="p-5">
-        <p className="text-sm text-slate-500">Sign in as an employee to manage a payout wallet.</p>
+        <p className="text-sm text-white/50">Sign in as an employee to manage a payout wallet.</p>
       </Card>
     );
   }
@@ -243,8 +245,8 @@ export default function ManageWalletPage() {
   if (employee.onboardingMethod !== "circle") {
     return (
       <Card className="p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Circle wallet required</h2>
-        <p className="mt-2 text-sm text-slate-500">
+        <h2 className="text-sm font-semibold text-white">Circle wallet required</h2>
+        <p className="mt-2 text-sm text-white/50">
           This page is only available for employees whose payout wallet was created through Circle onboarding.
         </p>
       </Card>
@@ -254,7 +256,7 @@ export default function ManageWalletPage() {
   if (!walletAddress) {
     return (
       <Card className="p-5">
-        <p className="text-sm text-slate-500">No Circle payout wallet is attached to this employee yet.</p>
+        <p className="text-sm text-white/50">No Circle payout wallet is attached to this employee yet.</p>
       </Card>
     );
   }
@@ -263,30 +265,30 @@ export default function ManageWalletPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm text-slate-500">
-            Move live Arc USDC out of your Circle-managed payroll wallet to another wallet address, or bridge it cross-chain with CCTP.
+          <p className="text-sm text-white/50">
+            Send USDC from your payroll wallet to another address or to a different network.
           </p>
-          <p className="mt-1 text-xs text-slate-400">Transfers run on Arc Testnet and require a live Circle session.</p>
+          <p className="mt-1 text-xs text-white/40">Transfers run on Arc Testnet and require a live Circle session.</p>
         </div>
         <button
           type="button"
           onClick={() => void loadBalance()}
           disabled={isRefreshingBalance}
-          className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+          className="inline-flex items-center justify-center rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isRefreshingBalance ? "Refreshing…" : "Refresh Balance"}
         </button>
       </div>
 
       {!circleAuth && (
-        <Card className="border-amber-200 bg-amber-50/50 p-5">
-          <h2 className="text-sm font-semibold text-amber-900">Reconnect Circle</h2>
-          <p className="mt-2 text-sm text-amber-800">
+        <Card className="border-amber-500/20 bg-amber-500/10 p-5">
+          <h2 className="text-sm font-semibold text-amber-300">Reconnect Circle</h2>
+          <p className="mt-2 text-sm text-amber-400/80">
             Your payroll session is active, but the Circle wallet session is missing in this browser tab. Reconnect with Google before sending funds.
           </p>
           <Link
             href="/circle-login?returnTo=/manage-wallet"
-            className="mt-4 inline-flex items-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800"
+            className="mt-4 inline-flex items-center rounded-xl border border-white/[0.10] bg-white/[0.08] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/[0.12]"
           >
             Reconnect Circle Session
           </Link>
@@ -295,50 +297,49 @@ export default function ManageWalletPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1.05fr_1fr]">
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-slate-900">Wallet Overview</h2>
+          <h2 className="text-sm font-semibold text-white">Wallet Overview</h2>
           <div className="mt-4 space-y-3">
-            <div className="rounded-lg bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Employee</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{employee.name}</p>
+            <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">Employee</p>
+              <p className="mt-1 text-sm font-semibold text-white">{employee.name}</p>
             </div>
-            <div className="rounded-lg bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Wallet Address</p>
+            <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">Wallet Address</p>
               <a
                 href={explorerAddressUrl(walletAddress)}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-1 block break-all text-sm font-semibold text-blue-700 hover:text-blue-800"
+                className="mt-1 block break-all text-sm font-semibold text-[#fc72ff] hover:text-[#fc72ff]/80"
               >
                 {walletAddress}
               </a>
             </div>
-            <div className="rounded-lg bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Available USDC</p>
-              <p className="mt-1 text-3xl font-semibold text-slate-900">{formatUsdc(balance)} USDC</p>
-              <p className="mt-1 text-xs text-slate-400">Live balance from the Arc Testnet USDC contract.</p>
+            <div className="rounded-xl bg-white/[0.04] px-5 py-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">Available USDC</p>
+              <p className="mt-2 text-2xl font-semibold tabular-nums text-white">{formatUsdc(balance)}</p>
             </div>
           </div>
           {balanceError && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               {balanceError}
             </div>
           )}
         </Card>
 
-        <Card className="p-5">
-          <h2 className="text-sm font-semibold text-slate-900">Send Funds</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Arc destinations use a direct Circle transfer. Other destinations use Circle contract-execution challenges to run CCTP from the wallet itself.
+        <Card className="p-6 sm:p-8">
+          <h2 className="text-base font-semibold text-white">Send USDC</h2>
+          <p className="mt-2 text-sm text-white/50">
+            Send to another wallet on the same chain or bridge to another network.
           </p>
 
           <div className="mt-4 space-y-4">
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Destination Chain</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-white/40">Destination Chain</span>
               <select
                 value={destinationPreference}
                 onChange={(event) => setDestinationPreference(event.target.value as (typeof destinationOptions)[number]["preference"])}
                 disabled={isSubmitting || !circleAuth}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                className={inputCls}
               >
                 {destinationOptions.map((option) => (
                   <option key={option.preference} value={option.preference}>
@@ -349,19 +350,19 @@ export default function ManageWalletPage() {
             </label>
 
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Destination Wallet</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-white/40">Destination Wallet</span>
               <input
                 type="text"
                 value={destinationAddress}
                 onChange={(event) => setDestinationAddress(event.target.value)}
                 placeholder="0x..."
                 disabled={isSubmitting || !circleAuth}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                className={inputCls}
               />
             </label>
 
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Amount (USDC)</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-white/40">Amount (USDC)</span>
               <input
                 type="text"
                 inputMode="decimal"
@@ -369,13 +370,13 @@ export default function ManageWalletPage() {
                 onChange={(event) => setAmount(event.target.value)}
                 placeholder="10.50"
                 disabled={isSubmitting || !circleAuth}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                className={inputCls}
               />
             </label>
 
             {destinationPreference !== "Arc" && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                This will bridge from Arc Testnet to {destinationLabel} using CCTP. Arc is a standard-finality source, so the cross-chain leg is not fast-transfer capable from this wallet. If Circle forwarding is available, the destination amount will be reduced by the forwarding fee.
+              <div className="rounded-xl border border-[#fc72ff]/20 bg-[#fc72ff]/[0.06] px-4 py-3 text-sm text-[#fc72ff]/80">
+                You're sending from Arc to {destinationLabel}. A small fee may apply for the bridge.
               </div>
             )}
 
@@ -383,20 +384,20 @@ export default function ManageWalletPage() {
               type="button"
               onClick={() => void handleTransfer()}
               disabled={isSubmitting || !circleAuth}
-              className="inline-flex w-full items-center justify-center rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#fc72ff] to-[#7b61ff] px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isSubmitting ? "Sending…" : destinationPreference === "Arc" ? "Send USDC" : "Bridge with CCTP"}
             </button>
           </div>
 
           {status && (
-            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-400">
               {status}
             </div>
           )}
 
           {error && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               {error}
             </div>
           )}

@@ -34,12 +34,12 @@ export default function DashboardLayout({
   const title = getTitle(pathname ?? "/");
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50/80">
+    <div className="flex h-screen overflow-hidden bg-[#0d0e0f]">
       <Sidebar role={role} />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <TopBar title={title} />
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-7xl p-6">{children}</div>
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+          <div className="mx-auto max-w-6xl px-5 pt-8 pb-12 sm:px-8 sm:pt-10 sm:pb-16 lg:px-10 lg:pt-12 lg:pb-20">{children}</div>
         </main>
       </div>
     </div>

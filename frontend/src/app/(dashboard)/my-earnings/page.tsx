@@ -69,13 +69,13 @@ export default function MyEarningsPage() {
   const canWithdraw = role === "employee" && ownRecipient?.id === recipient?.id;
 
   if (loading && !metrics) {
-    return <div className="text-sm text-slate-500">Loading earnings…</div>;
+    return <div className="text-sm text-white/50">Loading earnings…</div>;
   }
 
   if (!recipient || !metrics) {
     return (
       <Card className="p-5">
-        <p className="text-sm text-slate-500">{error ?? "Sign in as an employee or admin to view earnings."}</p>
+        <p className="text-sm text-white/50">{error ?? "Sign in as an employee or admin to view earnings."}</p>
       </Card>
     );
   }
@@ -109,22 +109,23 @@ export default function MyEarningsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm text-slate-500">
+          <h2 className="text-xl font-bold tracking-tight text-white">My Earnings</h2>
+          <p className="mt-1 text-sm text-white/50">
             Track pro-rated earnings, paid history, and the balance currently available to withdraw.
           </p>
-          <p className="mt-1 text-xs text-slate-400">As of {formatDate(today)}</p>
+          <p className="mt-0.5 text-xs text-white/40">As of {formatDate(today)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isAdmin && (
             <>
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Preview employee</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-white/40">Preview employee</span>
               <select
                 value={recipient.id}
                 onChange={(event) => setPreviewEmployeeId(event.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20"
               >
                 {recipients.map((option) => (
                   <option key={option.id} value={option.id}>
@@ -140,7 +141,7 @@ export default function MyEarningsPage() {
             onClick={() => {
               void handleWithdrawNow();
             }}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 15.75L12 21m0 0l-5.25-5.25M12 21V3" />
@@ -151,18 +152,18 @@ export default function MyEarningsPage() {
       </div>
 
       {withdrawMessage && (
-        <Card className="border-emerald-200 bg-emerald-50/40 p-4">
-          <p className="text-sm font-semibold text-emerald-800">{withdrawMessage}</p>
+        <Card className="border-emerald-500/20 bg-emerald-500/10 p-4">
+          <p className="text-sm font-semibold text-emerald-300">{withdrawMessage}</p>
         </Card>
       )}
 
       {withdrawError && (
-        <Card className="border-red-200 bg-red-50/40 p-4">
-          <p className="text-sm font-semibold text-red-800">{withdrawError}</p>
+        <Card className="border-red-500/20 bg-red-500/10 p-4">
+          <p className="text-sm font-semibold text-red-300">{withdrawError}</p>
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-4">
         <StatCard
           label="Current Period"
           value={formatCurrency(metrics.currentPeriodEarned)}
@@ -185,73 +186,73 @@ export default function MyEarningsPage() {
           label="Available to Withdraw"
           value={formatCurrency(metrics.availableToWithdraw)}
           subtitle="Earned minus paid"
-          valueClassName="text-emerald-700"
+          valueClassName="text-emerald-400"
           icon="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
         />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-5">
-          <h3 className="text-sm font-semibold text-slate-900">Payout Progress</h3>
-          <p className="mt-1 text-xs text-slate-500">Percentage of earned wages already paid this year</p>
+          <h3 className="text-sm font-semibold text-white">Payout Progress</h3>
+          <p className="mt-1 text-xs text-white/50">Percentage of earned wages already paid this year</p>
           <div className="mt-4">
             <div className="flex items-end justify-between">
-              <span className="text-3xl font-bold text-slate-900">{pctPaid}%</span>
-              <span className="text-xs text-slate-400">
+              <span className="text-3xl font-bold text-white">{pctPaid}%</span>
+              <span className="text-xs text-white/40">
                 {formatCurrency(metrics.totalPaid)} of {formatCurrency(metrics.ytdEarned)}
               </span>
             </div>
-            <div className="mt-3 h-3 w-full rounded-full bg-slate-100">
+            <div className="mt-3 h-2 w-full rounded-full bg-white/[0.06]">
               <div
-                className="h-3 rounded-full bg-gradient-to-r from-blue-500 to-blue-600"
+                className="h-2 rounded-full bg-gradient-to-r from-[#fc72ff] to-[#7b61ff]"
                 style={{ width: `${pctPaid}%` }}
               />
             </div>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Current period</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{timeWorkedLabel}</p>
+            <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">Current period</p>
+              <p className="mt-1 text-sm font-semibold text-white">{timeWorkedLabel}</p>
             </div>
-            <div className="rounded-lg bg-slate-50 px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Year to date</p>
-              <p className="mt-1 text-sm font-semibold text-slate-900">{ytdTimeWorkedLabel}</p>
+            <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">Year to date</p>
+              <p className="mt-1 text-sm font-semibold text-white">{ytdTimeWorkedLabel}</p>
             </div>
           </div>
         </Card>
 
         <Card className="p-5">
-          <h3 className="text-sm font-semibold text-slate-900">Compensation Details</h3>
-          <p className="mt-1 text-xs text-slate-500">Pay basis, chain preference, and tracking model</p>
+          <h3 className="text-sm font-semibold text-white">Compensation Details</h3>
+          <p className="mt-1 text-xs text-white/50">Pay basis, chain preference, and tracking model</p>
           <dl className="mt-4 space-y-3">
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-              <dt className="text-sm text-slate-500">Employee</dt>
-              <dd className="text-sm font-semibold text-slate-900">{recipient.name}</dd>
+            <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
+              <dt className="text-sm text-white/50">Employee</dt>
+              <dd className="text-sm font-semibold text-white">{recipient.name}</dd>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-              <dt className="text-sm text-slate-500">Pay Type</dt>
-              <dd className="text-sm font-semibold text-slate-900">{payTypeLabel(recipient.payType)}</dd>
+            <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
+              <dt className="text-sm text-white/50">Pay Type</dt>
+              <dd className="text-sm font-semibold text-white">{payTypeLabel(recipient.payType)}</dd>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-              <dt className="text-sm text-slate-500">Rate</dt>
-              <dd className="text-sm font-semibold text-slate-900">{formatRate(recipient.payType, recipient.rate)}</dd>
+            <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
+              <dt className="text-sm text-white/50">Rate</dt>
+              <dd className="text-sm font-semibold text-white">{formatRate(recipient.payType, recipient.rate)}</dd>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-              <dt className="text-sm text-slate-500">Preferred Chain</dt>
-              <dd className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                <span className="h-2 w-2 rounded-full bg-blue-500" />
+            <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
+              <dt className="text-sm text-white/50">Preferred Chain</dt>
+              <dd className="flex items-center gap-1.5 text-sm font-semibold text-white">
+                <span className="h-2 w-2 rounded-full bg-[#fc72ff]" />
                 {recipient.chainPreference ?? "Arc"}
               </dd>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-              <dt className="text-sm text-slate-500">Tracking Mode</dt>
-              <dd className="text-sm font-semibold text-slate-900">
+            <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
+              <dt className="text-sm text-white/50">Tracking Mode</dt>
+              <dd className="text-sm font-semibold text-white">
                 {recipient.timeTrackingMode === "check_in_out" ? "Manual Check-in/out" : "Schedule-based"}
               </dd>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-              <dt className="text-sm text-slate-500">Worked Since</dt>
-              <dd className="text-sm font-semibold text-slate-900">
+            <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
+              <dt className="text-sm text-white/50">Worked Since</dt>
+              <dd className="text-sm font-semibold text-white">
                 {recipient.employmentStartDate ? formatDate(recipient.employmentStartDate) : "Not set"}
               </dd>
             </div>
@@ -261,35 +262,35 @@ export default function MyEarningsPage() {
 
       <Card className="p-5">
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Breakdown input</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-white/40">Breakdown input</p>
+            <p className="mt-1 text-sm font-semibold text-white">
               {recipient.payType === "hourly" ? `${metrics.currentPeriodHours.toFixed(1)} hours` : `${formatDays(metrics.currentPeriodDays)} working days`}
             </p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Holiday exclusions</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-white/40">Holiday exclusions</p>
+            <p className="mt-1 text-sm font-semibold text-white">
               {metrics.currentPeriodHolidayCount} this period / {metrics.ytdHolidayCount} YTD
             </p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Schedule baseline</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-white/40">Schedule baseline</p>
+            <p className="mt-1 text-sm font-semibold text-white">
               {metrics.scheduleHoursPerDay} hrs scheduled day
             </p>
           </div>
         </div>
       </Card>
 
-      <Card className="border-amber-200 bg-amber-50/30 p-4">
+      <Card className="border-amber-500/20 bg-amber-500/10 p-4">
         <div className="flex gap-3">
-          <svg className="h-5 w-5 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+          <svg className="h-5 w-5 shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>
           <div>
-            <p className="text-sm font-medium text-amber-800">How withdrawals work</p>
-            <p className="mt-0.5 text-xs text-amber-700">
+            <p className="text-sm font-medium text-amber-300">How withdrawals work</p>
+            <p className="mt-0.5 text-xs text-amber-400/80">
               Available to withdraw is calculated as earned wages to date minus amounts already paid in executed pay runs.
               Schedule-based earnings accrue continuously through the configured workday, while holidays and approved days off are excluded.
             </p>

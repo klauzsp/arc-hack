@@ -26,6 +26,8 @@ const emptyForm: ScheduleForm = {
   workingDays: [1, 2, 3, 4, 5],
 };
 
+const inputCls = "rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20";
+
 export default function SchedulesPage() {
   const { role } = useAuthSession();
   const {
@@ -58,7 +60,7 @@ export default function SchedulesPage() {
   if (role !== "admin") {
     return (
       <Card className="p-5">
-        <p className="text-sm text-slate-500">CEO access is required to manage schedules and annual time-off limits.</p>
+        <p className="text-sm text-white/50">CEO access is required to manage schedules and annual time-off limits.</p>
       </Card>
     );
   }
@@ -123,14 +125,17 @@ export default function SchedulesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <p className="text-sm text-slate-500">
-        Define working hours for linear accrual and set the yearly day-off allowance the CEO will enforce from April 1 to March 31.
-      </p>
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-bold tracking-tight text-white">Schedules</h2>
+        <p className="mt-1 text-sm text-white/50">
+          Define working hours for linear accrual and set the yearly day-off allowance the CEO will enforce from April 1 to March 31.
+        </p>
+      </div>
 
       {(error || actionError || message) && (
-        <Card className={`${error || actionError ? "border-red-200 bg-red-50/40" : "border-emerald-200 bg-emerald-50/40"} p-4`}>
-          <p className={`text-sm font-semibold ${error || actionError ? "text-red-800" : "text-emerald-800"}`}>
+        <Card className={`${error || actionError ? "border-red-500/20 bg-red-500/10" : "border-emerald-500/20 bg-emerald-500/10"} p-4`}>
+          <p className={`text-sm font-semibold ${error || actionError ? "text-red-300" : "text-emerald-300"}`}>
             {error || actionError || message}
           </p>
         </Card>
@@ -139,13 +144,13 @@ export default function SchedulesPage() {
       <Card className="p-5">
         <div className="flex flex-wrap items-end gap-4">
           <label className="flex-1 space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Annual Day-Off Limit</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-white/40">Annual Day-Off Limit</span>
             <input
               type="number"
               min={1}
               value={limit}
               onChange={(event) => setLimit(event.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className={`w-full ${inputCls}`}
             />
           </label>
           <button
@@ -154,12 +159,12 @@ export default function SchedulesPage() {
             onClick={() => {
               void handleLimitSave();
             }}
-            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200"
+            className="rounded-xl border border-white/[0.10] bg-white/[0.08] px-4 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Save Limit
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-white/40">
           Current policy: {timeOffPolicy?.maxDaysPerYear ?? 0} days per employee each April-to-March year.
         </p>
       </Card>
@@ -167,14 +172,14 @@ export default function SchedulesPage() {
       <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">{editingId ? "Edit Schedule" : "New Schedule"}</h3>
-            <p className="mt-1 text-xs text-slate-500">Start time and hours per day drive schedule-based earnings accrual second by second.</p>
+            <h3 className="text-sm font-semibold text-white">{editingId ? "Edit Schedule" : "New Schedule"}</h3>
+            <p className="mt-1 text-xs text-white/50">Start time and hours per day drive schedule-based earnings accrual second by second.</p>
           </div>
           {editingId && (
             <button
               type="button"
               onClick={resetForm}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+              className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
             >
               Cancel Edit
             </button>
@@ -185,19 +190,19 @@ export default function SchedulesPage() {
             value={form.name ?? ""}
             onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             placeholder="Schedule name"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className={inputCls}
           />
           <input
             value={form.timezone ?? ""}
             onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))}
             placeholder="America/New_York"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className={inputCls}
           />
           <input
             type="time"
             value={form.startTime ?? "09:00"}
             onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className={inputCls}
           />
           <input
             type="number"
@@ -205,7 +210,7 @@ export default function SchedulesPage() {
             step={0.25}
             value={form.hoursPerDay}
             onChange={(event) => setForm((current) => ({ ...current, hoursPerDay: Number(event.target.value) || 0 }))}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className={inputCls}
           />
           <button
             type="button"
@@ -213,7 +218,7 @@ export default function SchedulesPage() {
             onClick={() => {
               void handleSave();
             }}
-            className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200"
+            className="rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-medium text-[#0d0e0f] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isSaving ? "Saving..." : editingId ? "Save Schedule" : "Create Schedule"}
           </button>
@@ -226,8 +231,8 @@ export default function SchedulesPage() {
                 key={day.value}
                 type="button"
                 onClick={() => toggleDay(day.value)}
-                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                  enabled ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                className={`rounded-xl px-3 py-1.5 text-sm font-medium transition-colors ${
+                  enabled ? "bg-[#fc72ff] text-[#0d0e0f]" : "bg-white/[0.06] text-white/50 hover:bg-white/[0.10]"
                 }`}
               >
                 {day.label}
@@ -239,33 +244,33 @@ export default function SchedulesPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {loading && orderedSchedules.length === 0 ? (
-          <div className="text-sm text-slate-500">Loading schedules…</div>
+          <div className="text-sm text-white/50">Loading schedules…</div>
         ) : (
           orderedSchedules.map((schedule) => (
             <Card key={schedule.id} className="p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-900">{schedule.name}</h3>
-                  <p className="mt-1 text-xs text-slate-500">{schedule.timezone}</p>
+                  <h3 className="text-sm font-semibold text-white">{schedule.name}</h3>
+                  <p className="mt-1 text-xs text-white/50">{schedule.timezone}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => openEdit(schedule)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                  className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
                 >
                   Edit
                 </button>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Workday</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-white/40">Workday</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
                     {schedule.startTime} start, {schedule.hoursPerDay} hrs
                   </p>
                 </div>
-                <div className="rounded-lg bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Working Days</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-white/40">Working Days</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
                     {schedule.workingDays.map((day) => dayOptions.find((option) => option.value === day)?.label).join(", ")}
                   </p>
                 </div>

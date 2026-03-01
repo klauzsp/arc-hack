@@ -338,7 +338,7 @@ function OnboardingPageContent() {
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-teal-700">Arc Payroll</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Arc Payroll</p>
             <h1 className="mt-2 text-3xl font-semibold text-slate-900">Employee onboarding</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600">
               Redeem your one-time access code, then choose whether payroll should use your existing wallet or create an Arc wallet through Circle.
@@ -350,7 +350,7 @@ function OnboardingPageContent() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border border-slate-200 bg-white/90 p-6 shadow-sm">
+          <Card className="border border-slate-200 bg-white p-6 shadow-sm">
             <div className="space-y-4">
               <div>
                 <label htmlFor="access-code" className="block text-sm font-medium text-slate-700">
@@ -362,13 +362,13 @@ function OnboardingPageContent() {
                     value={code}
                     onChange={(event) => setCode(event.target.value.toUpperCase())}
                     placeholder="Enter access code"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-slate-900 placeholder:tracking-normal placeholder:text-slate-400 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold uppercase tracking-widest text-slate-900 placeholder:tracking-normal placeholder:text-slate-400 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
                   />
                   <button
                     type="button"
                     onClick={() => void redeemCode()}
                     disabled={loading}
-                    className="rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    className="rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {loading && !redeemed ? "Checking…" : "Redeem code"}
                   </button>
@@ -376,15 +376,15 @@ function OnboardingPageContent() {
               </div>
 
               {redeemed && (
-                <div className="rounded-xl border border-teal-100 bg-teal-50/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-700">Recipient</p>
+                <div className="rounded-xl border border-teal-100 bg-teal-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Recipient</p>
                   <h2 className="mt-2 text-xl font-semibold text-slate-900">{redeemed.employee.name}</h2>
                   <p className="mt-1 text-sm text-slate-600">
                     Code expires {new Date(redeemed.invite.expiresAt).toLocaleString()}.
                   </p>
                   <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
                     <div>
-                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Preset pay</span>
+                      <span className="text-xs uppercase tracking-widest text-slate-400">Preset pay</span>
                         <p className="mt-1 font-medium text-slate-900">
                         {redeemed.employee.payType === "yearly"
                           ? `$${redeemed.employee.rate.toLocaleString()}/yr`
@@ -394,7 +394,7 @@ function OnboardingPageContent() {
                       </p>
                     </div>
                     <div>
-                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Preset work setup</span>
+                      <span className="text-xs uppercase tracking-widest text-slate-400">Preset work setup</span>
                       <p className="mt-1 font-medium text-slate-900">
                         {redeemed.employee.timeTrackingMode === "check_in_out" ? "Check-in / Check-out" : "Schedule-based"}
                         {redeemed.employee.scheduleId ? `, ${redeemed.employee.scheduleId}` : ""}
@@ -410,7 +410,7 @@ function OnboardingPageContent() {
                       className={`rounded-xl border px-4 py-4 text-left transition-colors ${
                         selectedMethod === "wallet"
                           ? "border-teal-700 bg-white shadow-sm"
-                          : "border-slate-200 bg-white/80 hover:border-slate-300"
+                          : "border-slate-200 bg-white hover:border-slate-300"
                       }`}
                     >
                       <p className="text-sm font-semibold text-slate-900">Use my existing wallet</p>
@@ -425,7 +425,7 @@ function OnboardingPageContent() {
                       className={`rounded-xl border px-4 py-4 text-left transition-colors ${
                         selectedMethod === "circle"
                           ? "border-teal-700 bg-white shadow-sm"
-                          : "border-slate-200 bg-white/80 hover:border-slate-300"
+                          : "border-slate-200 bg-white hover:border-slate-300"
                       } disabled:cursor-not-allowed disabled:opacity-50`}
                     >
                       <p className="text-sm font-semibold text-slate-900">Create Circle wallet with Google</p>
@@ -438,7 +438,7 @@ function OnboardingPageContent() {
               )}
 
               {redeemed && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-sm font-medium text-slate-900">Payout setup</p>
                   <p className="mt-1 text-sm text-slate-500">
                     Your name, pay, schedule, tracking mode, and start date were preset by the CEO. Choose how payroll should reach you.
@@ -448,7 +448,7 @@ function OnboardingPageContent() {
                       <select
                         value={profile.chainPreference}
                         onChange={(event) => setProfile((current) => ({ ...current, chainPreference: event.target.value }))}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
                       >
                         <option value="Arc">Arc</option>
                         <option value="Ethereum">Ethereum</option>
@@ -456,11 +456,11 @@ function OnboardingPageContent() {
                         <option value="Arbitrum">Arbitrum</option>
                       </select>
                     ) : (
-                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
                         Circle wallet payouts are locked to Arc.
                       </div>
                     )}
-                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
                       Start date: {redeemed.employee.employmentStartDate ?? "Set by CEO"}
                     </div>
                   </div>
@@ -468,7 +468,7 @@ function OnboardingPageContent() {
               )}
 
               {redeemed && selectedMethod === "wallet" && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-medium text-slate-900">Connected wallet</p>
@@ -482,7 +482,7 @@ function OnboardingPageContent() {
                     type="button"
                     onClick={() => void claimWithWallet()}
                     disabled={loading || !address}
-                    className="mt-4 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    className="mt-4 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {loading ? "Claiming…" : "Claim with this wallet"}
                   </button>
@@ -490,7 +490,7 @@ function OnboardingPageContent() {
               )}
 
               {redeemed && selectedMethod === "circle" && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-sm font-medium text-slate-900">Circle wallet onboarding</p>
                   <p className="mt-1 text-sm text-slate-500">
                     This signs you in with Google, creates a new Arc wallet through Circle, and binds it to your payroll profile.
@@ -499,7 +499,7 @@ function OnboardingPageContent() {
                     This redirects the page to Google first, then returns here for Circle wallet setup.
                   </p>
                   {!circleOnboardingReady && (
-                    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
                       Add <code>NEXT_PUBLIC_CIRCLE_APP_ID</code> and <code>NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID</code> to <code>frontend/.env.local</code> before using Circle onboarding.
                     </div>
                   )}
@@ -507,7 +507,7 @@ function OnboardingPageContent() {
                     type="button"
                     onClick={() => void claimWithCircle()}
                     disabled={loading || !circleOnboardingReady}
-                    className="mt-4 rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    className="mt-4 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {loading ? "Starting…" : "Continue with Circle + Google"}
                   </button>
@@ -525,8 +525,8 @@ function OnboardingPageContent() {
             </div>
           </Card>
 
-          <Card className="border border-slate-200 bg-white/90 p-6 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">How it works</p>
+          <Card className="border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">How it works</p>
             <ol className="mt-4 space-y-4 text-sm text-slate-600">
               <li>
                 The CEO either creates your full recipient directly, or generates a single-use access code with your preset name and pay from the Recipients page.
@@ -540,7 +540,7 @@ function OnboardingPageContent() {
             </ol>
 
             <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Direct link</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Direct link</p>
               <code className="mt-2 block break-all text-xs text-slate-700">{onboardingUrl}</code>
             </div>
           </Card>

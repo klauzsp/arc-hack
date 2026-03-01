@@ -44,14 +44,14 @@ export default function PayRunDetailPage() {
   if (!payRun) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
-          <svg className="h-7 w-7 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/[0.06]">
+          <svg className="h-7 w-7 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
-        <p className="mt-4 text-sm font-medium text-slate-900">Pay run not found</p>
-        <p className="mt-1 text-sm text-slate-500">The pay run you are looking for does not exist.</p>
-        <Link href="/pay-runs" className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-700">
+        <p className="mt-4 text-sm font-medium text-white">Pay run not found</p>
+        <p className="mt-1 text-sm text-white/50">The pay run you are looking for does not exist.</p>
+        <Link href="/pay-runs" className="mt-4 text-sm font-medium text-[#fc72ff] hover:text-[#fc72ff]/80">
           &larr; Back to pay runs
         </Link>
       </div>
@@ -60,28 +60,25 @@ export default function PayRunDetailPage() {
 
   return (
     <div className="space-y-6">
-      <nav className="flex items-center gap-2 text-sm text-slate-500">
-        <Link href="/pay-runs" className="hover:text-slate-700">Pay Runs</Link>
+      <nav className="flex items-center gap-2 text-sm text-white/40">
+        <Link href="/pay-runs" className="hover:text-white/70">Pay Runs</Link>
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
-        <span className="font-medium text-slate-900">
+        <span className="font-medium text-white">
           {formatDate(payRun.periodStart)} - {formatDate(payRun.periodEnd)}
         </span>
       </nav>
 
       {actionMessage && (
-        <Card className="border-emerald-200 bg-emerald-50/40 p-4">
-          <p className="text-sm font-semibold text-emerald-800">{actionMessage}</p>
-          <p className="mt-0.5 text-xs text-emerald-700">
-            Treasury and pay run state were updated live through the backend and contract flow.
-          </p>
+        <Card className="border-emerald-500/20 bg-emerald-500/10 p-5">
+          <p className="text-sm font-semibold text-emerald-300">{actionMessage}</p>
         </Card>
       )}
 
       {actionError && (
-        <Card className="border-red-200 bg-red-50/40 p-4">
-          <p className="text-sm font-semibold text-red-800">{actionError}</p>
+        <Card className="border-red-500/20 bg-red-500/10 p-4">
+          <p className="text-sm font-semibold text-red-300">{actionError}</p>
         </Card>
       )}
 
@@ -89,7 +86,7 @@ export default function PayRunDetailPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-semibold text-slate-900">
+              <h2 className="text-xl font-semibold text-white">
                 {formatDate(payRun.periodStart)} - {formatDate(payRun.periodEnd)}
               </h2>
               <Badge variant={statusVariant(payRun.status)}>
@@ -97,7 +94,7 @@ export default function PayRunDetailPage() {
               </Badge>
             </div>
             {payRun.executedAt && (
-              <p className="mt-1.5 text-sm text-slate-500">
+              <p className="mt-1.5 text-sm text-white/50">
                 Executed on{" "}
                 {new Date(payRun.executedAt).toLocaleDateString("en-US", {
                   weekday: "long",
@@ -108,13 +105,13 @@ export default function PayRunDetailPage() {
               </p>
             )}
             {payRun.onChainId && (
-              <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
-                <span className="font-semibold text-slate-500">On-chain ID:</span>
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-white/40">
+                <span className="font-semibold text-white/50">On-chain ID:</span>
                 <span className="font-mono">{payRun.onChainId}</span>
               </p>
             )}
             {payRun.txHash && (
-              <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-white/40">
                 <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.314a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.04" />
                 </svg>
@@ -138,7 +135,7 @@ export default function PayRunDetailPage() {
                     })
                     .finally(() => setIsSubmitting(false));
                 }}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-medium text-[#0d0e0f] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Approve Pay Run
               </button>
@@ -164,7 +161,7 @@ export default function PayRunDetailPage() {
                     })
                     .finally(() => setIsSubmitting(false));
                 }}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200"
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -187,7 +184,7 @@ export default function PayRunDetailPage() {
                     })
                     .finally(() => setIsSubmitting(false));
                 }}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-white/80 shadow-sm transition-colors hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isSubmitting ? "Finalizing…" : "Finalize Pay Run"}
               </button>
@@ -203,47 +200,47 @@ export default function PayRunDetailPage() {
       </div>
 
       <Card>
-        <div className="border-b border-slate-100 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-900">Recipient Breakdown</h3>
+        <div className="border-b border-white/[0.06] px-6 py-4">
+          <h3 className="text-sm font-semibold text-white">Recipient Breakdown</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-slate-100">
-                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Recipient</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Wallet</th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Amount</th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Chain</th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+              <tr className="border-b border-white/[0.06]">
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Recipient</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Wallet</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Amount</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Chain</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-white/[0.04]">
               {(payRun.items ?? []).map((item) => {
                 const recipient = recipients.find((candidate) => candidate.id === item.recipientId);
                 return (
-                  <tr key={item.recipientId} className="transition-colors hover:bg-slate-50/50">
-                    <td className="whitespace-nowrap px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                  <tr key={item.recipientId} className="transition-colors hover:bg-white/[0.03]">
+                    <td className="min-w-0 max-w-[200px] px-6 py-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-xs font-semibold text-white/60">
                           {recipient?.name.split(" ").map((part) => part[0]).join("") ?? "?"}
                         </div>
-                        <span className="text-sm font-medium text-slate-900">
+                        <span className="truncate text-sm font-medium text-white">
                           {recipient?.name ?? item.recipientId}
                         </span>
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-slate-400">
+                    <td className="whitespace-nowrap px-6 py-4 font-mono text-xs text-white/40">
                       {recipient?.walletAddress
                         ? `${recipient.walletAddress.slice(0, 6)}...${recipient.walletAddress.slice(-4)}`
-                        : "--"}
+                        : "—"}
                     </td>
-                    <td className="whitespace-nowrap px-5 py-3.5 text-right text-sm font-semibold text-slate-900">
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-semibold tabular-nums text-white">
                       {formatCurrency(item.amount)}
                     </td>
-                    <td className="whitespace-nowrap px-5 py-3.5 text-right text-xs text-slate-500">
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-xs text-white/50">
                       {recipient?.chainPreference ?? "Arc"}
                     </td>
-                    <td className="whitespace-nowrap px-5 py-3.5 text-right">
+                    <td className="whitespace-nowrap px-6 py-4 text-right">
                       <Badge variant={statusVariant(item.status ?? "pending")}>
                         {(item.status ?? "pending").charAt(0).toUpperCase() + (item.status ?? "pending").slice(1)}
                       </Badge>
