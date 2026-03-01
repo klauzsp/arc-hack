@@ -67,7 +67,9 @@ function reputationBg(score: number): string {
 
 const ANOMALY_SCORE_THRESHOLD = 0.55;
 const LOW_REPUTATION_THRESHOLD = 40;
-const REPUTATION_PENALTY = 8;
+const REPUTATION_PENALTY_REBALANCE = 8;
+const REPUTATION_PENALTY_REVIEW = 4;
+const REPUTATION_RECOVERY = 0.5;
 const DEFAULT_REP = 75;
 
 /* ─── Generate synthetic "normal" training data for the Isolation Forest.
@@ -306,9 +308,14 @@ export default function AnomaliesPage() {
     return reputationMap.current.get(empId) ?? DEFAULT_REP;
   }, []);
 
-  const penaliseReputation = useCallback((empId: string) => {
+  const penaliseReputation = useCallback((empId: string, penalty: number) => {
     const current = reputationMap.current.get(empId) ?? DEFAULT_REP;
-    reputationMap.current.set(empId, Math.max(0, current - REPUTATION_PENALTY));
+    reputationMap.current.set(empId, Math.max(0, current - penalty));
+  }, []);
+
+  const recoverReputation = useCallback((empId: string) => {
+    const current = reputationMap.current.get(empId) ?? DEFAULT_REP;
+    reputationMap.current.set(empId, Math.min(100, current + REPUTATION_RECOVERY));
   }, []);
 
   /* Derive reputations from the map for display */
@@ -428,8 +435,8 @@ export default function AnomaliesPage() {
         const severity = scoreSeverity(det.score);
         const reasons = buildReasons(det.features, det.score, repScore);
 
-        // Penalise reputation for this employee
-        penaliseReputation(empId);
+        // Penalise reputation: 8 for rebalance, 4 for CEO review
+        penaliseReputation(empId, action === "usyc_rebalance" ? REPUTATION_PENALTY_REBALANCE : REPUTATION_PENALTY_REVIEW);
 
         return {
           id: nextId(),
@@ -452,6 +459,14 @@ export default function AnomaliesPage() {
               : null,
         };
       });
+
+      // Recover reputation for employees whose entries were NOT flagged
+      const flaggedIndices = new Set(detections.map((d) => d.index));
+      for (let i = 0; i < featureData.length; i++) {
+        if (!flaggedIndices.has(i)) {
+          recoverReputation(featureData[i].recipient.id);
+        }
+      }
 
       if (newAnomalies.length === 0) {
         setError(`Scanned ${featureData.length} time entries — no anomalies detected. All clear!`);
