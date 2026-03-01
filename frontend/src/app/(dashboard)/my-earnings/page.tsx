@@ -4,8 +4,12 @@ import { useState } from "react";
 import { useAccount } from "wagmi";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
+import { inputStyles } from "@/components/ui";
 
 function payTypeLabel(payType: string) {
   return payType === "yearly" ? "Annual Salary" : payType === "daily" ? "Daily Rate" : "Hourly Rate";
@@ -110,22 +114,18 @@ export default function MyEarningsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">My Earnings</h2>
-          <p className="mt-1 text-sm text-white/50">
-            Track pro-rated earnings, paid history, and the balance currently available to withdraw.
-          </p>
-          <p className="mt-0.5 text-xs text-white/40">As of {formatDate(today)}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && (
-            <>
-              <span className="text-xs font-medium uppercase tracking-wider text-white/40">Preview employee</span>
+      <PageHeader
+        eyebrow="Employee Earnings"
+        title="My Earnings"
+        description="Track pro-rated earnings, paid history, and the balance currently available to withdraw."
+        meta={<Badge variant="default">As of {formatDate(today)}</Badge>}
+        actions={
+          <>
+            {isAdmin ? (
               <select
                 value={recipient.id}
                 onChange={(event) => setPreviewEmployeeId(event.target.value)}
-                className="rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20"
+                className={`${inputStyles} min-w-[220px]`}
               >
                 {recipients.map((option) => (
                   <option key={option.id} value={option.id}>
@@ -133,23 +133,22 @@ export default function MyEarningsPage() {
                   </option>
                 ))}
               </select>
-            </>
-          )}
-          <button
-            type="button"
-            disabled={!canWithdraw || metrics.availableToWithdraw <= 0 || isWithdrawing}
-            onClick={() => {
-              void handleWithdrawNow();
-            }}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 15.75L12 21m0 0l-5.25-5.25M12 21V3" />
-            </svg>
-            {isWithdrawing ? "Withdrawing…" : "Withdraw Now"}
-          </button>
-        </div>
-      </div>
+            ) : null}
+            <Button
+              variant="success"
+              disabled={!canWithdraw || metrics.availableToWithdraw <= 0 || isWithdrawing}
+              onClick={() => {
+                void handleWithdrawNow();
+              }}
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 15.75L12 21m0 0l-5.25-5.25M12 21V3" />
+              </svg>
+              {isWithdrawing ? "Withdrawing…" : "Withdraw Now"}
+            </Button>
+          </>
+        }
+      />
 
       {withdrawMessage && (
         <Card className="border-emerald-500/20 bg-emerald-500/10 p-4">

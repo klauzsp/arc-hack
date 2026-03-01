@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuthSession } from "@/components/AuthProvider";
+import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 import { usePayroll } from "@/components/PayrollProvider";
+import { inputStyles } from "@/components/ui";
 import type { Schedule } from "@/lib/types";
 
 const dayOptions = [
@@ -25,8 +28,6 @@ const emptyForm: ScheduleForm = {
   hoursPerDay: 8,
   workingDays: [1, 2, 3, 4, 5],
 };
-
-const inputCls = "rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20";
 
 export default function SchedulesPage() {
   const { role } = useAuthSession();
@@ -126,12 +127,11 @@ export default function SchedulesPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight text-white">Schedules</h2>
-        <p className="mt-1 text-sm text-white/50">
-          Define working hours for linear accrual and set the yearly day-off allowance the CEO will enforce from April 1 to March 31.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Work Calendars"
+        title="Schedules"
+        description="Define working hours for linear accrual and set the yearly day-off allowance enforced from April 1 to March 31."
+      />
 
       {(error || actionError || message) && (
         <Card className={`${error || actionError ? "border-red-500/20 bg-red-500/10" : "border-emerald-500/20 bg-emerald-500/10"} p-4`}>
@@ -150,19 +150,18 @@ export default function SchedulesPage() {
               min={1}
               value={limit}
               onChange={(event) => setLimit(event.target.value)}
-              className={`w-full ${inputCls}`}
+              className={inputStyles}
             />
           </label>
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             disabled={isSaving || Number(limit) <= 0}
             onClick={() => {
               void handleLimitSave();
             }}
-            className="rounded-xl border border-white/[0.10] bg-white/[0.08] px-4 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Save Limit
-          </button>
+          </Button>
         </div>
         <p className="mt-2 text-xs text-white/40">
           Current policy: {timeOffPolicy?.maxDaysPerYear ?? 0} days per employee each April-to-March year.
@@ -176,13 +175,9 @@ export default function SchedulesPage() {
             <p className="mt-1 text-xs text-white/50">Start time and hours per day drive schedule-based earnings accrual second by second.</p>
           </div>
           {editingId && (
-            <button
-              type="button"
-              onClick={resetForm}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
-            >
+            <Button variant="outline" onClick={resetForm}>
               Cancel Edit
-            </button>
+            </Button>
           )}
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -190,19 +185,19 @@ export default function SchedulesPage() {
             value={form.name ?? ""}
             onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             placeholder="Schedule name"
-            className={inputCls}
+            className={inputStyles}
           />
           <input
             value={form.timezone ?? ""}
             onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))}
             placeholder="America/New_York"
-            className={inputCls}
+            className={inputStyles}
           />
           <input
             type="time"
             value={form.startTime ?? "09:00"}
             onChange={(event) => setForm((current) => ({ ...current, startTime: event.target.value }))}
-            className={inputCls}
+            className={inputStyles}
           />
           <input
             type="number"
@@ -210,18 +205,16 @@ export default function SchedulesPage() {
             step={0.25}
             value={form.hoursPerDay}
             onChange={(event) => setForm((current) => ({ ...current, hoursPerDay: Number(event.target.value) || 0 }))}
-            className={inputCls}
+            className={inputStyles}
           />
-          <button
-            type="button"
+          <Button
             disabled={isSaving || !form.name || !form.timezone || !form.startTime || form.workingDays.length === 0}
             onClick={() => {
               void handleSave();
             }}
-            className="rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-medium text-[#0d0e0f] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isSaving ? "Saving..." : editingId ? "Save Schedule" : "Create Schedule"}
-          </button>
+          </Button>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {dayOptions.map((day) => {
@@ -231,8 +224,10 @@ export default function SchedulesPage() {
                 key={day.value}
                 type="button"
                 onClick={() => toggleDay(day.value)}
-                className={`rounded-xl px-3 py-1.5 text-sm font-medium transition-colors ${
-                  enabled ? "bg-[#fc72ff] text-[#0d0e0f]" : "bg-white/[0.06] text-white/50 hover:bg-white/[0.10]"
+                className={`inline-flex h-10 items-center justify-center rounded-full border px-4 text-sm font-semibold transition-colors ${
+                  enabled
+                    ? "border-transparent bg-[linear-gradient(135deg,#ff7bf3_0%,#fc72ff_38%,#8b5cf6_100%)] text-[#111216]"
+                    : "border-white/[0.08] bg-[#1a1b1f] text-white/60 hover:bg-[#202127] hover:text-white"
                 }`}
               >
                 {day.label}
@@ -253,13 +248,13 @@ export default function SchedulesPage() {
                   <h3 className="text-sm font-semibold text-white">{schedule.name}</h3>
                   <p className="mt-1 text-xs text-white/50">{schedule.timezone}</p>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => openEdit(schedule)}
-                  className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
                 >
                   Edit
-                </button>
+                </Button>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-xl bg-white/[0.04] px-4 py-3">

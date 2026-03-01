@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 import { useAuthSession } from "@/components/AuthProvider";
 import { usePayroll } from "@/components/PayrollProvider";
+import { inputStyles } from "@/components/ui";
 
 function statusVariant(status: string): "success" | "default" {
   return status === "active" ? "success" : "default";
@@ -29,8 +32,6 @@ function describePolicy(type: string, config: Record<string, unknown>) {
   }
   return "Backend-managed operational policy for payroll or treasury workflows.";
 }
-
-const inputCls = "w-full rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20";
 
 export default function PoliciesPage() {
   const { role } = useAuthSession();
@@ -88,26 +89,21 @@ export default function PoliciesPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">Policies</h2>
-          <p className="mt-1 text-sm text-white/50">
-            Configure payroll and treasury rules that keep operations consistent across approvals, payout timing, and treasury protection.
-          </p>
-        </div>
-        {role === "admin" && (
-          <button
-            type="button"
-            onClick={() => setCreating((current) => !current)}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-semibold text-[#0d0e0f] shadow-sm transition-opacity hover:opacity-90"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            {creating ? "Close" : "New Policy"}
-          </button>
-        )}
-      </div>
+      <PageHeader
+        eyebrow="Automation Guardrails"
+        title="Policies"
+        description="Configure payroll and treasury rules that keep approvals, timing, and capital protection aligned."
+        actions={
+          role === "admin" ? (
+            <Button variant={creating ? "secondary" : "primary"} onClick={() => setCreating((current) => !current)}>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {creating ? "Close" : "New Policy"}
+            </Button>
+          ) : null
+        }
+      />
 
       {(error || actionError) && (
         <Card className="border-red-500/20 bg-red-500/10 p-4">
@@ -123,7 +119,7 @@ export default function PoliciesPage() {
               <input
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                className={inputCls}
+                className={inputStyles}
                 placeholder="Quarter-end hold"
               />
             </label>
@@ -137,7 +133,7 @@ export default function PoliciesPage() {
                     type: event.target.value as "payday" | "treasury_threshold" | "manual",
                   }))
                 }
-                className={inputCls}
+                className={inputStyles}
               >
                 <option value="manual">Manual</option>
                 <option value="payday">Payday</option>
@@ -154,7 +150,7 @@ export default function PoliciesPage() {
                     status: event.target.value as "active" | "paused",
                   }))
                 }
-                className={inputCls}
+                className={inputStyles}
               >
                 <option value="active">Active</option>
                 <option value="paused">Paused</option>
@@ -162,14 +158,13 @@ export default function PoliciesPage() {
             </label>
           </div>
           <div className="mt-4 flex justify-end">
-            <button
-              type="button"
+            <Button
+              variant="secondary"
               disabled={isSaving || form.name.trim().length === 0}
               onClick={() => void handleCreate()}
-              className="rounded-xl border border-white/[0.10] bg-white/[0.08] px-4 py-2 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isSaving ? "Saving..." : "Save Policy"}
-            </button>
+            </Button>
           </div>
         </Card>
       )}
@@ -198,13 +193,13 @@ export default function PoliciesPage() {
                   </div>
                 </div>
                 {role === "admin" && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => void handleToggle(policy.id, policy.status)}
-                    className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
                   >
                     {policy.status === "active" ? "Pause" : "Resume"}
-                  </button>
+                  </Button>
                 )}
               </div>
               <p className="mt-3 text-sm leading-relaxed text-white/60">

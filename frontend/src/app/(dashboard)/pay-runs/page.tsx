@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useState } from "react";
 import { usePayroll } from "@/components/PayrollProvider";
 import { Badge } from "@/components/Badge";
+import { Button, buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 
 function statusVariant(status: string): "success" | "warning" | "info" | "default" {
   if (status === "executed") return "success";
@@ -58,25 +60,19 @@ export default function PayRunsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">Pay Runs</h2>
-          <p className="mt-1 text-sm text-white/50">
-            Create treasury-backed pay runs, stage them on-chain, and execute payroll directly from the Core treasury.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void handleCreatePayRun()}
-          disabled={isCreating}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-semibold text-[#0d0e0f] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          {isCreating ? "Creating…" : "Create Treasury Pay Run"}
-        </button>
-      </div>
+      <PageHeader
+        eyebrow="Payroll Operations"
+        title="Treasury-backed pay runs."
+        description="Create, approve, and execute payroll directly from the Core treasury with live payout tracking."
+        actions={
+          <Button onClick={() => void handleCreatePayRun()} disabled={isCreating}>
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            {isCreating ? "Creating…" : "Create Treasury Pay Run"}
+          </Button>
+        }
+      />
 
       {(error || createError) && (
         <Card className="border-red-500/20 bg-red-500/10 p-4">
@@ -93,7 +89,7 @@ export default function PayRunsPage() {
                 Review the draft, approve it to create the on-chain pay run, then execute it from treasury.
               </p>
             </div>
-            <Link href={`/pay-runs/${lastCreatedId}`} className="text-sm font-medium text-[#fc72ff] hover:text-[#fc72ff]/80">
+            <Link href={`/pay-runs/${lastCreatedId}`} className={buttonStyles({ variant: "secondary", size: "sm" })}>
               Open draft
             </Link>
           </div>
@@ -174,7 +170,7 @@ export default function PayRunsPage() {
                   <td className="whitespace-nowrap px-5 py-4 text-right">
                     <Link
                       href={`/pay-runs/${payRun.id}`}
-                      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[#fc72ff] transition-colors hover:bg-[#fc72ff]/[0.08]"
+                      className={buttonStyles({ variant: "ghost", size: "sm", className: "text-[#fc72ff] hover:bg-[#fc72ff]/[0.08]" })}
                     >
                       View
                       <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>

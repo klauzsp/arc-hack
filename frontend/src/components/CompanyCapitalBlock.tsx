@@ -57,17 +57,17 @@ function StepButton({
 }) {
   const className =
     variant === "secondary"
-      ? "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+      ? "border border-white/[0.08] bg-white/[0.06] text-white/80 hover:bg-white/[0.10]"
       : variant === "ghost"
-        ? "bg-slate-100 text-slate-400"
-        : "bg-slate-900 text-white hover:bg-slate-800";
+        ? "bg-white/[0.04] text-white/30 cursor-not-allowed"
+        : "bg-[#fc72ff] text-[#0d0e0f] hover:opacity-90";
 
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:hover:bg-inherit ${className}`}
+      className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed ${className}`}
     >
       {label}
     </button>
@@ -88,12 +88,12 @@ function StatusRow({
   success: string;
 }) {
   if (isConfirming) {
-    return <p className="text-sm text-blue-700">Waiting for on-chain confirmation…</p>;
+    return <p className="text-sm text-[#fc72ff]">Waiting for on-chain confirmation…</p>;
   }
 
   if (isConfirmed) {
     return (
-      <p className="text-sm text-emerald-700">
+      <p className="text-sm text-emerald-400">
         {success}
         {hash ? (
           <>
@@ -108,11 +108,13 @@ function StatusRow({
   }
 
   if (error) {
-    return <p className="break-words text-sm text-red-700">{error.message}</p>;
+    return <p className="break-words text-sm text-red-400">{error.message}</p>;
   }
 
   return null;
 }
+
+const inputCls = "w-full rounded-xl border border-white/[0.08] bg-white/[0.06] py-2.5 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20";
 
 export function CompanyCapitalBlock() {
   const { address } = useAccount();
@@ -357,8 +359,8 @@ export function CompanyCapitalBlock() {
   if (!isArcChain) {
     return (
       <Card className="p-6">
-        <h3 className="text-sm font-semibold text-slate-900">Treasury Controls</h3>
-        <p className="mt-2 text-sm text-slate-500">Switch the connected wallet to Arc Testnet to manage the treasury.</p>
+        <h3 className="text-sm font-semibold text-white">Treasury Controls</h3>
+        <p className="mt-2 text-sm text-white/50">Switch the connected wallet to Arc Testnet to manage the treasury.</p>
       </Card>
     );
   }
@@ -366,8 +368,8 @@ export function CompanyCapitalBlock() {
   if (!address) {
     return (
       <Card className="p-6">
-        <h3 className="text-sm font-semibold text-slate-900">Treasury Controls</h3>
-        <p className="mt-2 text-sm text-slate-500">Connect the CEO wallet to fund the treasury and manage USYC conversions.</p>
+        <h3 className="text-sm font-semibold text-white">Treasury Controls</h3>
+        <p className="mt-2 text-sm text-white/50">Connect the CEO wallet to fund the treasury and manage USYC conversions.</p>
       </Card>
     );
   }
@@ -375,8 +377,8 @@ export function CompanyCapitalBlock() {
   if (!isCeo) {
     return (
       <Card className="p-6 sm:p-8">
-        <h3 className="text-base font-semibold text-slate-900">Company capital</h3>
-        <p className="mt-2 text-sm text-slate-500">Only the company’s main wallet can add funds or move money between the treasury and yield.</p>
+        <h3 className="text-base font-semibold text-white">Company capital</h3>
+        <p className="mt-2 text-sm text-white/50">Only the company's main wallet can add funds or move money between the treasury and yield.</p>
       </Card>
     );
   }
@@ -385,37 +387,37 @@ export function CompanyCapitalBlock() {
     <div className="space-y-6">
       <Card className="p-6 sm:p-8">
         <div className="min-w-0">
-          <h3 className="text-base font-semibold text-slate-900">Balances</h3>
-          <p className="mt-1 text-sm text-slate-500">
+          <h3 className="text-base font-semibold text-white">Balances</h3>
+          <p className="mt-1 text-sm text-white/50">
             Add USDC to the treasury, move idle cash into yield (USYC), or redeem back when you need it for payroll.
           </p>
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-5 py-4">
-            <p className="text-xs font-medium uppercase tracking-widest text-slate-400">Treasury USDC</p>
-            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-900" title={fmtAmount(treasuryUsdcBalance)}>{fmtAmount(treasuryUsdcBalance)}</p>
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-widest text-white/40">Treasury USDC</p>
+            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-white" title={fmtAmount(treasuryUsdcBalance)}>{fmtAmount(treasuryUsdcBalance)}</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-5 py-4">
-            <p className="text-xs font-medium uppercase tracking-widest text-slate-400">Your wallet USDC</p>
-            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-900" title={fmtAmount(walletUsdcBalance)}>{fmtAmount(walletUsdcBalance)}</p>
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-widest text-white/40">Your wallet USDC</p>
+            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-white" title={fmtAmount(walletUsdcBalance)}>{fmtAmount(walletUsdcBalance)}</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-5 py-4">
-            <p className="text-xs font-medium uppercase tracking-widest text-slate-400">Your wallet USYC</p>
-            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-slate-900" title={fmtAmount(walletUsycBalance)}>{fmtAmount(walletUsycBalance)}</p>
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-5 py-4">
+            <p className="text-xs font-medium uppercase tracking-widest text-white/40">Your wallet USYC</p>
+            <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-white" title={fmtAmount(walletUsycBalance)}>{fmtAmount(walletUsycBalance)}</p>
           </div>
         </div>
       </Card>
 
       <Card className="p-6 sm:p-8">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">Add money to treasury</h3>
-          <p className="mt-1 text-sm text-slate-500">Move USDC from your connected wallet into the treasury so pay runs can use it.</p>
+          <h3 className="text-base font-semibold text-white">Add money to treasury</h3>
+          <p className="mt-1 text-sm text-white/50">Move USDC from your connected wallet into the treasury so pay runs can use it.</p>
         </div>
 
         <div className="mt-4">
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Deposit Amount</label>
+          <label className="mb-1.5 block text-sm font-medium text-white/60">Deposit Amount</label>
           <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/40">$</span>
             <input
               type="number"
               min={0}
@@ -427,9 +429,9 @@ export function CompanyCapitalBlock() {
                 treasuryDepositWrite.reset();
               }}
               placeholder="0.00"
-              className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className={`${inputCls} pl-7 pr-16`}
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USDC</span>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USDC</span>
           </div>
         </div>
 
@@ -460,16 +462,16 @@ export function CompanyCapitalBlock() {
 
       <Card className="p-6 sm:p-8">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">Move idle cash into yield (USYC)</h3>
-          <p className="mt-1 text-sm text-slate-500">
+          <h3 className="text-base font-semibold text-white">Move idle cash into yield (USYC)</h3>
+          <p className="mt-1 text-sm text-white/50">
             Move USDC from the treasury into your wallet, then deposit it into USYC to earn yield.
           </p>
         </div>
 
         <div className="mt-5">
-          <label className="mb-2 block text-sm font-medium text-slate-700">Amount (USDC)</label>
+          <label className="mb-2 block text-sm font-medium text-white/60">Amount (USDC)</label>
           <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/40">$</span>
             <input
               type="number"
               min={0}
@@ -477,9 +479,9 @@ export function CompanyCapitalBlock() {
               value={convertAmount}
               onChange={(event) => resetConvertFlow(event.target.value)}
               placeholder="0.00"
-              className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className={`${inputCls} pl-7 pr-16`}
             />
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USDC</span>
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USDC</span>
           </div>
         </div>
 
@@ -531,17 +533,17 @@ export function CompanyCapitalBlock() {
 
       <Card className="p-6 sm:p-8">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">Redeem USYC back for payroll</h3>
-          <p className="mt-1 text-sm text-slate-500">
+          <h3 className="text-base font-semibold text-white">Redeem USYC back for payroll</h3>
+          <p className="mt-1 text-sm text-white/50">
             Redeem USYC to USDC in your wallet, then send that USDC back to the treasury so pay runs can use it.
           </p>
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">USYC Amount</label>
+            <label className="mb-1.5 block text-sm font-medium text-white/60">USYC Amount</label>
             <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/40">$</span>
               <input
                 type="number"
                 min={0}
@@ -549,19 +551,19 @@ export function CompanyCapitalBlock() {
                 value={redeemAmount}
                 onChange={(event) => resetRedeemFlow(event.target.value)}
                 placeholder="0.00"
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className={`${inputCls} pl-7 pr-16`}
               />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USYC</span>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USYC</span>
             </div>
             {redeemParsed > zero && (
-              <p className="mt-1.5 text-xs text-slate-400">Teller USYC allowance: {fmtAmount(usycAllowance)} USYC</p>
+              <p className="mt-1.5 text-xs text-white/40">Teller USYC allowance: {fmtAmount(usycAllowance)} USYC</p>
             )}
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">Return USDC Amount</label>
+            <label className="mb-1.5 block text-sm font-medium text-white/60">Return USDC Amount</label>
             <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-white/40">$</span>
               <input
                 type="number"
                 min={0}
@@ -569,9 +571,9 @@ export function CompanyCapitalBlock() {
                 value={returnAmount}
                 onChange={(event) => resetReturnFlow(event.target.value)}
                 placeholder="0.00"
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-7 pr-16 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className={`${inputCls} pl-7 pr-16`}
               />
-              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400">USDC</span>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USDC</span>
             </div>
           </div>
         </div>

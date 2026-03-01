@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { usePayroll } from "@/components/PayrollProvider";
 import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { StatCard } from "@/components/StatCard";
 
@@ -121,8 +122,7 @@ export default function PayRunDetailPage() {
           </div>
           <div className="flex items-center gap-2">
             {payRun.status === "draft" && (
-              <button
-                type="button"
+              <Button
                 disabled={isSubmitting}
                 onClick={() => {
                   setIsSubmitting(true);
@@ -135,14 +135,13 @@ export default function PayRunDetailPage() {
                     })
                     .finally(() => setIsSubmitting(false));
                 }}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-medium text-[#0d0e0f] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Approve Pay Run
-              </button>
+              </Button>
             )}
             {payRun.status === "approved" && (
-              <button
-                type="button"
+              <Button
+                variant="success"
                 disabled={isSubmitting}
                 onClick={() => {
                   setIsSubmitting(true);
@@ -161,17 +160,16 @@ export default function PayRunDetailPage() {
                     })
                     .finally(() => setIsSubmitting(false));
                 }}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 {isSubmitting ? "Executing…" : "Execute Pay Run"}
-              </button>
+              </Button>
             )}
             {payRun.status === "processing" && (
-              <button
-                type="button"
+              <Button
+                variant="outline"
                 disabled={isSubmitting}
                 onClick={() => {
                   setIsSubmitting(true);
@@ -184,10 +182,9 @@ export default function PayRunDetailPage() {
                     })
                     .finally(() => setIsSubmitting(false));
                 }}
-                className="inline-flex items-center gap-2 rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-white/80 shadow-sm transition-colors hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isSubmitting ? "Finalizing…" : "Finalize Pay Run"}
-              </button>
+              </Button>
             )}
           </div>
         </div>

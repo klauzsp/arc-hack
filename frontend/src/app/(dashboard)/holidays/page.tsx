@@ -3,8 +3,11 @@
 import { useMemo, useState } from "react";
 import { useAuthSession } from "@/components/AuthProvider";
 import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 import { usePayroll } from "@/components/PayrollProvider";
+import { inputStyles } from "@/components/ui";
 import type { HolidayRecord } from "@/lib/types";
 
 type HolidayForm = {
@@ -22,8 +25,6 @@ function statusVariant(status: string): "warning" | "success" | "default" {
   if (status === "pending") return "warning";
   return "default";
 }
-
-const inputCls = "rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20";
 
 export default function HolidaysPage() {
   const { role } = useAuthSession();
@@ -99,12 +100,11 @@ export default function HolidaysPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight text-white">Holidays</h2>
-        <p className="mt-1 text-sm text-white/50">
-          Company holidays are global non-working days. Employee days off are approved individually and consume the April-to-March allowance of {timeOffPolicy?.maxDaysPerYear ?? 0} days.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Time Off Controls"
+        title="Holidays"
+        description={`Company holidays are global non-working days. Employee days off are approved individually and consume the April-to-March allowance of ${timeOffPolicy?.maxDaysPerYear ?? 0} days.`}
+      />
 
       {(error || actionError || message) && (
         <Card className={`${error || actionError ? "border-red-500/20 bg-red-500/10" : "border-emerald-500/20 bg-emerald-500/10"} p-4`}>
@@ -122,16 +122,15 @@ export default function HolidaysPage() {
               <p className="mt-1 text-xs text-white/50">These dates are excluded from schedule-based accrual for everyone.</p>
             </div>
             {editingHolidayId && (
-              <button
-                type="button"
+              <Button
+                variant="outline"
                 onClick={() => {
                   setEditingHolidayId(null);
                   setHolidayForm(emptyHoliday);
                 }}
-                className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
               >
                 Cancel
-              </button>
+              </Button>
             )}
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -139,24 +138,22 @@ export default function HolidaysPage() {
               type="date"
               value={holidayForm.date}
               onChange={(event) => setHolidayForm((current) => ({ ...current, date: event.target.value }))}
-              className={inputCls}
+              className={inputStyles}
             />
             <input
               value={holidayForm.name}
               onChange={(event) => setHolidayForm((current) => ({ ...current, name: event.target.value }))}
               placeholder="Holiday name"
-              className={inputCls}
+              className={inputStyles}
             />
-            <button
-              type="button"
+            <Button
               disabled={isSaving || !holidayForm.date || !holidayForm.name}
               onClick={() => {
                 void handleSaveHoliday();
               }}
-              className="rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-medium text-[#0d0e0f] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isSaving ? "Saving..." : editingHolidayId ? "Save Holiday" : "Add Holiday"}
-            </button>
+            </Button>
           </div>
           <div className="mt-5 space-y-2">
             {loading && holidayRecords.length === 0 ? (
@@ -198,24 +195,24 @@ export default function HolidaysPage() {
                     <Badge variant="warning">Pending</Badge>
                   </div>
                   <div className="mt-4 flex gap-2">
-                    <button
-                      type="button"
+                    <Button
+                      variant="success"
+                      size="sm"
                       onClick={() => {
                         void handleReview(request.id, "approved");
                       }}
-                      className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
                     >
                       Approve
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => {
                         void handleReview(request.id, "rejected");
                       }}
-                      className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
                     >
                       Reject
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))

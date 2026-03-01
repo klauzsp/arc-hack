@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePayroll } from "@/components/PayrollProvider";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
 
@@ -47,20 +48,19 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="mb-8 flex min-w-0 flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">Overview</h2>
-          <p className="mt-1 text-sm text-white/50">
-            Treasury balance, upcoming pay runs, and system health across all chains.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="info">{recipients.length} recipients</Badge>
-          <span className="text-xs font-medium text-white/40">{formatDate(today)}</span>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Operations Overview"
+        title="Treasury, payroll, and liquidity at a glance."
+        description="Track current treasury balance, upcoming payroll activity, and payout readiness across every connected chain."
+        meta={
+          <>
+            <Badge variant="info">{recipients.length} recipients</Badge>
+            <Badge variant="default">{formatDate(today)}</Badge>
+          </>
+        }
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Total USDC"
           value={formatCurrency(treasury?.totalUsdc ?? 0)}

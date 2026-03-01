@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 import { useAuthSession } from "@/components/AuthProvider";
+import { inputStyles } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatCircleSdkError } from "@/lib/circleGoogle";
 import { ERC20_ABI, USDC_ADDRESS, arcTestnet, explorerAddressUrl } from "@/lib/contracts";
@@ -38,8 +41,6 @@ function messageFromError(error: unknown) {
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-const inputCls = "w-full rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20 disabled:bg-white/[0.03] disabled:text-white/30 disabled:cursor-not-allowed";
 
 export default function ManageWalletPage() {
   const { token, role, employee, circleAuth } = useAuthSession();
@@ -263,22 +264,21 @@ export default function ManageWalletPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-sm text-white/50">
-            Send USDC from your payroll wallet to another address or to a different network.
-          </p>
-          <p className="mt-1 text-xs text-white/40">Transfers run on Arc Testnet and require a live Circle session.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void loadBalance()}
-          disabled={isRefreshingBalance}
-          className="inline-flex items-center justify-center rounded-xl border border-white/[0.10] bg-white/[0.06] px-4 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-40"
-        >
+      <PageHeader
+        eyebrow="Circle Wallet"
+        title="Manage Wallet"
+        description="Send USDC from your payroll wallet to another address or route funds to a different network."
+        meta={<span className="text-xs text-white/40">Transfers run on Arc Testnet and require a live Circle session.</span>}
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => void loadBalance()}
+            disabled={isRefreshingBalance}
+          >
           {isRefreshingBalance ? "Refreshing…" : "Refresh Balance"}
-        </button>
-      </div>
+          </Button>
+        }
+      />
 
       {!circleAuth && (
         <Card className="border-amber-500/20 bg-amber-500/10 p-5">
@@ -288,7 +288,7 @@ export default function ManageWalletPage() {
           </p>
           <Link
             href="/circle-login?returnTo=/manage-wallet"
-            className="mt-4 inline-flex items-center rounded-xl border border-white/[0.10] bg-white/[0.08] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/[0.12]"
+            className="mt-4 inline-flex items-center rounded-full border border-white/[0.12] bg-[#1a1b1f] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:border-white/[0.18] hover:bg-[#202127]"
           >
             Reconnect Circle Session
           </Link>
@@ -339,7 +339,7 @@ export default function ManageWalletPage() {
                 value={destinationPreference}
                 onChange={(event) => setDestinationPreference(event.target.value as (typeof destinationOptions)[number]["preference"])}
                 disabled={isSubmitting || !circleAuth}
-                className={inputCls}
+                className={inputStyles}
               >
                 {destinationOptions.map((option) => (
                   <option key={option.preference} value={option.preference}>
@@ -357,7 +357,7 @@ export default function ManageWalletPage() {
                 onChange={(event) => setDestinationAddress(event.target.value)}
                 placeholder="0x..."
                 disabled={isSubmitting || !circleAuth}
-                className={inputCls}
+                className={inputStyles}
               />
             </label>
 
@@ -370,7 +370,7 @@ export default function ManageWalletPage() {
                 onChange={(event) => setAmount(event.target.value)}
                 placeholder="10.50"
                 disabled={isSubmitting || !circleAuth}
-                className={inputCls}
+                className={inputStyles}
               />
             </label>
 
@@ -380,14 +380,13 @@ export default function ManageWalletPage() {
               </div>
             )}
 
-            <button
-              type="button"
+            <Button
+              block
               onClick={() => void handleTransfer()}
               disabled={isSubmitting || !circleAuth}
-              className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-[#fc72ff] to-[#7b61ff] px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isSubmitting ? "Sending…" : destinationPreference === "Arc" ? "Send USDC" : "Bridge with CCTP"}
-            </button>
+            </Button>
           </div>
 
           {status && (

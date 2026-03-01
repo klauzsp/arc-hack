@@ -4,6 +4,7 @@ import { useState } from "react";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
 import { CompanyCapitalBlock } from "@/components/CompanyCapitalBlock";
@@ -87,12 +88,12 @@ export default function TreasuryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-2">
-        <h2 className="text-xl font-bold tracking-tight text-white">Treasury</h2>
-        <p className="mt-1 text-sm text-white/50">
-          Keep payroll liquid and let idle cash earn yield. Funds are available for pay runs across all connected chains.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Capital Operations"
+        title="Treasury"
+        description="Keep payroll liquid and let idle cash earn yield. Funds remain available for pay runs across all connected chains."
+        meta={<Badge variant="info">{chainBalances.length} connected chains</Badge>}
+      />
 
       {treasury?.readError && (
         <Card className="border-amber-500/20 bg-amber-500/10 p-5">

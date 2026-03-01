@@ -5,7 +5,10 @@ import { useAccount } from "wagmi";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
 import { Badge } from "@/components/Badge";
+import { Button, buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
+import { inputStyles } from "@/components/ui";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -40,8 +43,6 @@ function formatDate(value: string) {
 function formatDays(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
-
-const inputCls = "w-full rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20 disabled:bg-white/[0.03] disabled:text-white/30 disabled:cursor-not-allowed";
 
 export default function MyTimePage() {
   const { address } = useAccount();
@@ -212,23 +213,21 @@ export default function MyTimePage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight text-white">My Time</h2>
-          <p className="mt-1 text-sm text-white/50">
-            {isCheckInOut
-              ? "Track worked time with live clock-in and clock-out actions."
-              : "Review the schedule and holiday calendar used to infer worked time."}
-          </p>
-          <p className="mt-0.5 text-xs text-white/40">As of {formatDate(today)}</p>
-        </div>
-        {isAdmin && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-wider text-white/40">Preview employee</span>
+      <PageHeader
+        eyebrow="Time Tracking"
+        title="My Time"
+        description={
+          isCheckInOut
+            ? "Track worked time with live clock-in and clock-out actions."
+            : "Review the schedule and holiday calendar used to infer worked time."
+        }
+        meta={<Badge variant="default">As of {formatDate(today)}</Badge>}
+        actions={
+          isAdmin ? (
             <select
               value={recipient.id}
               onChange={(event) => setPreviewEmployeeId(event.target.value)}
-              className="rounded-xl border border-white/[0.08] bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20"
+              className={`${inputStyles} min-w-[220px]`}
             >
               {recipients.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -236,9 +235,9 @@ export default function MyTimePage() {
                 </option>
               ))}
             </select>
-          </div>
-        )}
-      </div>
+          ) : null
+        }
+      />
 
       {timeMessage && (
         <Card className="border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -274,7 +273,7 @@ export default function MyTimePage() {
                       value={clockInTime}
                       disabled={!!activeSession || !canManageOwnTime}
                       onChange={(event) => setClockInTime(event.target.value)}
-                      className={inputCls}
+                      className={inputStyles}
                     />
                   </label>
                   <label className="space-y-1">
@@ -284,38 +283,36 @@ export default function MyTimePage() {
                       value={clockOutTime}
                       disabled={!activeSession || !canManageOwnTime}
                       onChange={(event) => setClockOutTime(event.target.value)}
-                      className={inputCls}
+                      className={inputStyles}
                     />
                   </label>
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
+                  <Button
+                    variant="success"
                     disabled={!!activeSession || !canManageOwnTime || isSubmitting !== null}
                     onClick={() => {
                       void handleClockIn();
                     }}
-                    className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
                     </svg>
                     {isSubmitting === "clock_in" ? "Clocking In…" : "Clock In"}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    variant="outline"
                     disabled={!activeSession || !canManageOwnTime || isSubmitting !== null}
                     onClick={() => {
                       void handleClockOut();
                     }}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/[0.10] bg-white/[0.06] px-5 py-2.5 text-sm font-medium text-white/80 shadow-sm transition-colors hover:bg-white/[0.10] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
                     </svg>
                     {isSubmitting === "clock_out" ? "Clocking Out…" : "Clock Out"}
-                  </button>
+                  </Button>
                 </div>
                 {!canManageOwnTime && (
                   <p className="text-xs text-white/40">
@@ -508,38 +505,35 @@ export default function MyTimePage() {
                 value={timeOffDate}
                 min={today}
                 onChange={(event) => setTimeOffDate(event.target.value)}
-                className={inputCls}
+                className={inputStyles}
               />
               <input
                 value={timeOffNote}
                 onChange={(event) => setTimeOffNote(event.target.value)}
                 placeholder="Optional note"
-                className={inputCls}
+                className={inputStyles}
               />
-              <button
-                type="button"
+              <Button
                 disabled={isSavingTimeOff || !timeOffDate}
                 onClick={() => {
                   void handleSaveTimeOff();
                 }}
-                className="rounded-xl bg-[#fc72ff] px-4 py-2.5 text-sm font-medium text-[#0d0e0f] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isSavingTimeOff ? "Saving..." : editingTimeOffId ? "Save Change" : "Request Day Off"}
-              </button>
+              </Button>
             </div>
             {editingTimeOffId && (
               <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
                   onClick={() => {
                     setEditingTimeOffId(null);
                     setTimeOffDate(today);
                     setTimeOffNote("");
                   }}
-                  className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/[0.08]"
                 >
                   Cancel Edit
-                </button>
+                </Button>
               </div>
             )}
             {myTimeOffAllowance && (
@@ -579,7 +573,7 @@ export default function MyTimePage() {
                             <button
                               type="button"
                               onClick={() => beginEditTimeOff(request.id)}
-                              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-[#fc72ff] transition-colors hover:bg-[#fc72ff]/[0.08]"
+                              className={buttonStyles({ variant: "ghost", size: "sm", className: "text-[#fc72ff] hover:bg-[#fc72ff]/[0.08]" })}
                             >
                               Change
                             </button>
@@ -588,7 +582,7 @@ export default function MyTimePage() {
                               onClick={() => {
                                 void handleCancelTimeOff(request.id);
                               }}
-                              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/[0.08]"
+                              className={buttonStyles({ variant: "danger", size: "sm" })}
                             >
                               Remove
                             </button>
