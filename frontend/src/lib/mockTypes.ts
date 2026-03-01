@@ -19,6 +19,8 @@ export interface Schedule {
   hoursPerDay: number;
   timezone?: string;
   startTime?: string;
+  /** Max annual time-off days for this schedule; null/undefined = use company default */
+  maxTimeOffDaysPerYear?: number | null;
 }
 
 export interface TimeEntry {

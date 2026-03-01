@@ -459,6 +459,11 @@ export const api = {
       token,
       body: payload,
     }),
+  deletePayRun: (token: string, id: string) =>
+    request<{ ok: boolean }>(`/pay-runs/${id}`, {
+      method: "DELETE",
+      token,
+    }),
   approvePayRun: (token: string, id: string) =>
     request<PayRun>(`/pay-runs/${id}/approve`, {
       method: "POST",

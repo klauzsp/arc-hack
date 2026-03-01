@@ -50,6 +50,7 @@ const scheduleSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   hoursPerDay: z.number().positive(),
   workingDays: z.array(z.number().int().min(0).max(6)).min(1),
+  maxTimeOffDaysPerYear: z.number().int().positive().nullable().optional(),
 });
 
 const holidaySchema = z.object({
@@ -671,6 +672,12 @@ export function buildApp(config: AppConfig) {
     await getSessionOrThrow(request, authService, "admin");
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     return payrollService.updatePayRun(params.id, payRunSchema.partial().parse(request.body ?? {}));
+  });
+  app.delete("/pay-runs/:id", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    payrollService.deletePayRun(params.id);
+    return { ok: true };
   });
   app.post("/pay-runs/:id/approve", async (request) => {
     await getSessionOrThrow(request, authService, "admin");

@@ -63,6 +63,7 @@ function mapTreasuryBalance(row: Record<string, unknown>): TreasuryBalanceRecord
 }
 
 function mapSchedule(row: Record<string, unknown>): ScheduleRecord {
+  const maxTimeOff = row.max_time_off_days_per_year;
   return {
     id: String(row.id),
     companyId: String(row.company_id),
@@ -71,6 +72,7 @@ function mapSchedule(row: Record<string, unknown>): ScheduleRecord {
     startTime: String(row.start_time),
     hoursPerDay: toNumber(row.hours_per_day),
     workingDays: parseJson<number[]>(row.working_days_json, []),
+    maxTimeOffDaysPerYear: maxTimeOff == null ? null : toNumber(maxTimeOff),
   };
 }
 
@@ -419,6 +421,7 @@ export class PayrollRepository {
     this.ensureColumn("employees", "employment_start_date", "TEXT");
     this.ensureColumn("companies", "max_time_off_days_per_year", "INTEGER NOT NULL DEFAULT 20");
     this.ensureColumn("schedules", "start_time", "TEXT NOT NULL DEFAULT '09:00'");
+    this.ensureColumn("schedules", "max_time_off_days_per_year", "INTEGER");
     this.ensureColumn("employees", "onboarding_status", "TEXT NOT NULL DEFAULT 'claimed'");
     this.ensureColumn("employees", "onboarding_method", "TEXT");
     this.ensureColumn("employees", "claimed_at", "TEXT");
@@ -534,7 +537,7 @@ export class PayrollRepository {
       }
 
       const insertSchedule = this.db.prepare(
-        "INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json, max_time_off_days_per_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       );
       for (const schedule of payload.schedules) {
         insertSchedule.run(
@@ -545,6 +548,7 @@ export class PayrollRepository {
           schedule.startTime,
           schedule.hoursPerDay,
           JSON.stringify(schedule.workingDays),
+          schedule.maxTimeOffDaysPerYear ?? null,
         );
       }
 
@@ -765,7 +769,7 @@ export class PayrollRepository {
   createSchedule(schedule: ScheduleRecord) {
     this.db
       .prepare(
-        "INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json, max_time_off_days_per_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         schedule.id,
@@ -775,6 +779,7 @@ export class PayrollRepository {
         schedule.startTime,
         schedule.hoursPerDay,
         JSON.stringify(schedule.workingDays),
+        schedule.maxTimeOffDaysPerYear ?? null,
       );
     return schedule;
   }
@@ -785,7 +790,7 @@ export class PayrollRepository {
     const next = { ...current, ...patch, id };
     this.db
       .prepare(
-        "UPDATE schedules SET company_id = ?, name = ?, timezone = ?, start_time = ?, hours_per_day = ?, working_days_json = ? WHERE id = ?",
+        "UPDATE schedules SET company_id = ?, name = ?, timezone = ?, start_time = ?, hours_per_day = ?, working_days_json = ?, max_time_off_days_per_year = ? WHERE id = ?",
       )
       .run(
         next.companyId,
@@ -794,6 +799,7 @@ export class PayrollRepository {
         next.startTime,
         next.hoursPerDay,
         JSON.stringify(next.workingDays),
+        next.maxTimeOffDaysPerYear ?? null,
         id,
       );
     return next;
@@ -1098,6 +1104,13 @@ export class PayrollRepository {
         id,
       );
     return next;
+  }
+
+  deletePayRun(id: string) {
+    this.transaction(() => {
+      this.db.prepare("DELETE FROM pay_run_items WHERE pay_run_id = ?").run(id);
+      this.db.prepare("DELETE FROM pay_runs WHERE id = ?").run(id);
+    });
   }
 
   replacePayRunItems(payRunId: string, items: PayRunItemRecord[]) {

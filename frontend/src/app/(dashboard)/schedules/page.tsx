@@ -27,6 +27,7 @@ const emptyForm: ScheduleForm = {
   startTime: "09:00",
   hoursPerDay: 8,
   workingDays: [1, 2, 3, 4, 5],
+  maxTimeOffDaysPerYear: null,
 };
 
 export default function SchedulesPage() {
@@ -79,6 +80,7 @@ export default function SchedulesPage() {
       startTime: schedule.startTime ?? "09:00",
       hoursPerDay: schedule.hoursPerDay,
       workingDays: schedule.workingDays,
+      maxTimeOffDaysPerYear: schedule.maxTimeOffDaysPerYear ?? null,
     });
   };
 
@@ -207,6 +209,39 @@ export default function SchedulesPage() {
             onChange={(event) => setForm((current) => ({ ...current, hoursPerDay: Number(event.target.value) || 0 }))}
             className={inputStyles}
           />
+          <label className="space-y-2">
+            <span className="block text-xs font-semibold uppercase tracking-wider text-white/40">Max annual day off</span>
+            <div className="flex gap-2">
+              <select
+                value={form.maxTimeOffDaysPerYear == null ? "default" : "custom"}
+                onChange={(e) =>
+                  setForm((current) => ({
+                    ...current,
+                    maxTimeOffDaysPerYear: e.target.value === "default" ? null : (timeOffPolicy?.maxDaysPerYear ?? 20),
+                  }))
+                }
+                className={inputStyles}
+              >
+                <option value="default">Default ({timeOffPolicy?.maxDaysPerYear ?? 0} days)</option>
+                <option value="custom">Custom</option>
+              </select>
+              {form.maxTimeOffDaysPerYear != null && (
+                <input
+                  type="number"
+                  min={1}
+                  value={form.maxTimeOffDaysPerYear}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      maxTimeOffDaysPerYear: Number(event.target.value) || null,
+                    }))
+                  }
+                  className={inputStyles}
+                  style={{ width: "5rem" }}
+                />
+              )}
+            </div>
+          </label>
           <Button
             disabled={isSaving || !form.name || !form.timezone || !form.startTime || form.workingDays.length === 0}
             onClick={() => {
@@ -256,7 +291,7 @@ export default function SchedulesPage() {
                   Edit
                 </Button>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-xl bg-white/[0.04] px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wider text-white/40">Workday</p>
                   <p className="mt-1 text-sm font-semibold text-white">
@@ -267,6 +302,14 @@ export default function SchedulesPage() {
                   <p className="text-xs font-medium uppercase tracking-wider text-white/40">Working Days</p>
                   <p className="mt-1 text-sm font-semibold text-white">
                     {schedule.workingDays.map((day) => dayOptions.find((option) => option.value === day)?.label).join(", ")}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white/[0.04] px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wider text-white/40">Max annual day off</p>
+                  <p className="mt-1 text-sm font-semibold text-white">
+                    {schedule.maxTimeOffDaysPerYear == null
+                      ? `Default (${timeOffPolicy?.maxDaysPerYear ?? 0} days)`
+                      : `${schedule.maxTimeOffDaysPerYear} days`}
                   </p>
                 </div>
               </div>
