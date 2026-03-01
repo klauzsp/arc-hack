@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/Badge";
 import { Button, buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
@@ -110,6 +110,88 @@ export default function RecipientsPage() {
   } | null>(null);
   const [formState, setFormState] = useState<RecipientFormState>(emptyRecipient);
   const [isSaving, setIsSaving] = useState(false);
+
+  // --- Search ---
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // --- Inline edit ---
+  const [inlineEditId, setInlineEditId] = useState<string | null>(null);
+  const [inlineForm, setInlineForm] = useState<RecipientFormState>(emptyRecipient);
+  const [inlineSaving, setInlineSaving] = useState(false);
+
+  const filteredRecipients = useMemo(() => {
+    if (!search.trim()) return recipients;
+    const q = search.toLowerCase();
+    return recipients.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        (r.walletAddress && r.walletAddress.toLowerCase().includes(q)) ||
+        (r.chainPreference && r.chainPreference.toLowerCase().includes(q)),
+    );
+  }, [recipients, search]);
+
+  const startInlineEdit = useCallback(
+    (recipient: Recipient) => {
+      setInlineEditId(recipient.id);
+      setInlineForm({
+        walletAddress: recipient.walletAddress ?? "",
+        name: recipient.name,
+        payType: recipient.payType,
+        rate: recipient.rate,
+        chainPreference: recipient.chainPreference ?? null,
+        timeTrackingMode: recipient.timeTrackingMode,
+        scheduleId: recipient.scheduleId,
+        employmentStartDate: recipient.employmentStartDate ?? "",
+      });
+    },
+    [],
+  );
+
+  const cancelInlineEdit = useCallback(() => {
+    setInlineEditId(null);
+    setInlineForm(emptyRecipient);
+  }, []);
+
+  const saveInlineEdit = useCallback(async () => {
+    if (!inlineEditId || !inlineForm.name.trim()) return;
+    setInlineSaving(true);
+    try {
+      await updateRecipient(inlineEditId, {
+        ...inlineForm,
+        walletAddress: inlineForm.walletAddress.trim() || null,
+        employmentStartDate: inlineForm.employmentStartDate || null,
+      });
+      setMessage("Recipient updated.");
+      setInlineEditId(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Failed to save.");
+    } finally {
+      setInlineSaving(false);
+    }
+  }, [inlineEditId, inlineForm, updateRecipient]);
+
+  // Global "E" hotkey — only fires when no input/select/textarea is focused
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (
+        e.key === "/" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !(document.activeElement instanceof HTMLInputElement) &&
+        !(document.activeElement instanceof HTMLSelectElement) &&
+        !(document.activeElement instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const inlineInputStyles =
+    "w-full rounded-lg border border-white/[0.08] bg-[#1a1b1f] px-2 py-1.5 text-xs text-white placeholder:text-white/28 focus:border-[#fc72ff]/45 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/18";
 
   const activeChains = new Set(
     recipients.map((recipient) => recipient.chainPreference).filter(Boolean),
@@ -542,142 +624,280 @@ export default function RecipientsPage() {
           </div>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {recipients.map((recipient) => {
-            const metrics = getRecipientMetrics(recipient.id);
+        <>
+          {/* Search bar */}
+          <div className="relative">
+            <svg
+              className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+              />
+            </svg>
+            <input
+              ref={searchRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder='Search recipients by name, wallet, or chain…  Press "/" to focus'
+              className={`${inputStyles} pl-11 pr-10`}
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-white/30 transition-colors hover:bg-white/[0.06] hover:text-white/60"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
 
-            return (
-              <Card key={recipient.id} className="p-5 sm:p-6">
-                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0 xl:max-w-[320px]">
-                    <div className="flex items-start gap-4">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/[0.06] text-sm font-semibold text-white/72">
-                        {initials(recipient.name)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-lg font-semibold text-white">
-                            {recipient.name}
-                          </h3>
+          {/* Recipients table */}
+          <Card className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/[0.06]">
+                  <th className="px-5 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Name</th>
+                  <th className="px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Pay Type</th>
+                  <th className="px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Rate</th>
+                  <th className="px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Chain</th>
+                  <th className="px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Tracking</th>
+                  <th className="px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Status</th>
+                  <th className="px-4 py-3.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Available</th>
+                  <th className="px-5 py-3.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {filteredRecipients.map((recipient) => {
+                  const metrics = getRecipientMetrics(recipient.id);
+                  const isEditing = inlineEditId === recipient.id;
+
+                  return (
+                    <tr
+                      key={recipient.id}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "e" &&
+                          !isEditing &&
+                          !(document.activeElement instanceof HTMLInputElement) &&
+                          !(document.activeElement instanceof HTMLSelectElement)
+                        ) {
+                          e.preventDefault();
+                          startInlineEdit(recipient);
+                        }
+                        if (e.key === "Escape" && isEditing) {
+                          cancelInlineEdit();
+                        }
+                        if (e.key === "Enter" && isEditing) {
+                          e.preventDefault();
+                          void saveInlineEdit();
+                        }
+                      }}
+                      className={`group transition-colors ${
+                        isEditing
+                          ? "bg-[#fc72ff]/[0.03]"
+                          : "hover:bg-white/[0.02] focus:bg-white/[0.02]"
+                      }`}
+                    >
+                      {/* Name */}
+                      <td className="px-5 py-3">
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={inlineForm.name}
+                            onChange={(e) => setInlineForm({ ...inlineForm, name: e.target.value })}
+                            className={inlineInputStyles}
+                            autoFocus
+                          />
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-[11px] font-semibold text-white/72">
+                              {initials(recipient.name)}
+                            </div>
+                            <span className="truncate font-medium text-white">{recipient.name}</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Pay Type */}
+                      <td className="px-4 py-3">
+                        {isEditing ? (
+                          <select
+                            value={inlineForm.payType}
+                            onChange={(e) => setInlineForm({ ...inlineForm, payType: e.target.value as PayType })}
+                            className={inlineInputStyles}
+                          >
+                            <option value="yearly">Salary</option>
+                            <option value="daily">Daily</option>
+                            <option value="hourly">Hourly</option>
+                          </select>
+                        ) : (
                           <Badge variant={payTypeVariant(recipient.payType)}>
                             {payTypeLabel(recipient.payType)}
                           </Badge>
-                        </div>
-                        <p className="mt-1 text-sm text-white/46">
-                          Worked since {recipient.employmentStartDate ?? "not set"}
-                        </p>
-                      </div>
-                    </div>
+                        )}
+                      </td>
 
-                    <div className="mt-4 space-y-3">
-                      <div className={`${subtlePanelStyles} px-4 py-3`}>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                          Wallet
-                        </p>
-                        <p className="mt-2 break-all font-mono text-xs text-white/68">
-                          {recipient.walletAddress ?? "Pending claim"}
-                        </p>
-                      </div>
+                      {/* Rate */}
+                      <td className="px-4 py-3">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min={0}
+                            value={inlineForm.rate}
+                            onChange={(e) => setInlineForm({ ...inlineForm, rate: Number(e.target.value) || 0 })}
+                            className={`${inlineInputStyles} tabular-nums`}
+                          />
+                        ) : (
+                          <span className="tabular-nums text-white/80">
+                            {formatRate(recipient.payType, recipient.rate)}
+                          </span>
+                        )}
+                      </td>
 
-                      <div className={`${subtlePanelStyles} px-4 py-3`}>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            variant={
-                              recipient.onboardingStatus === "claimed"
-                                ? "info"
-                                : "warning"
-                            }
+                      {/* Chain */}
+                      <td className="px-4 py-3">
+                        {isEditing ? (
+                          <select
+                            value={inlineForm.chainPreference ?? "Arc"}
+                            onChange={(e) => setInlineForm({ ...inlineForm, chainPreference: e.target.value })}
+                            className={inlineInputStyles}
                           >
-                            {recipient.onboardingStatus === "claimed"
-                              ? "Claimed"
-                              : "Awaiting claim"}
-                          </Badge>
-                        </div>
-                        <p className="mt-2 text-xs leading-5 text-white/52">
-                          {inviteStatusCopy(recipient)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                            <option value="Arc">Arc</option>
+                            <option value="Ethereum">Ethereum</option>
+                            <option value="Base">Base</option>
+                            <option value="Arbitrum">Arbitrum</option>
+                          </select>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-[#fc72ff]" />
+                            <span className="text-white/80">{recipient.chainPreference ?? "--"}</span>
+                          </div>
+                        )}
+                      </td>
 
-                  <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className={metricTileStyles}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                        Rate
-                      </p>
-                      <p className="mt-2 text-base font-semibold text-white">
-                        {formatRate(recipient.payType, recipient.rate)}
-                      </p>
-                    </div>
-                    <div className={metricTileStyles}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                        Available
-                      </p>
-                      <p className="mt-2 text-base font-semibold text-emerald-400">
-                        {metrics
-                          ? formatCurrency(metrics.availableToWithdraw)
-                          : "--"}
-                      </p>
-                    </div>
-                    <div className={metricTileStyles}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                        Chain
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-[#fc72ff]" />
-                        <span className="text-base font-semibold text-white">
-                          {recipient.chainPreference ?? "--"}
+                      {/* Tracking */}
+                      <td className="px-4 py-3">
+                        {isEditing ? (
+                          <select
+                            value={inlineForm.timeTrackingMode}
+                            onChange={(e) => setInlineForm({ ...inlineForm, timeTrackingMode: e.target.value as TimeTrackingMode })}
+                            className={inlineInputStyles}
+                          >
+                            <option value="schedule_based">Schedule</option>
+                            <option value="check_in_out">Check-in/out</option>
+                          </select>
+                        ) : (
+                          <span className="text-white/60">{trackingLabel(recipient.timeTrackingMode)}</span>
+                        )}
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-4 py-3">
+                        <Badge variant={recipient.onboardingStatus === "claimed" ? "success" : "warning"}>
+                          {recipient.onboardingStatus === "claimed" ? "Claimed" : "Pending"}
+                        </Badge>
+                      </td>
+
+                      {/* Available */}
+                      <td className="px-4 py-3 text-right">
+                        <span className="tabular-nums font-medium text-emerald-400">
+                          {metrics ? formatCurrency(metrics.availableToWithdraw) : "--"}
                         </span>
-                      </div>
-                    </div>
-                    <div className={metricTileStyles}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                        Tracking
-                      </p>
-                      <p className="mt-2 text-base font-semibold text-white">
-                        {trackingLabel(recipient.timeTrackingMode)}
-                      </p>
-                    </div>
-                  </div>
+                      </td>
 
-                  <div className="flex flex-wrap gap-2 xl:max-w-[240px] xl:justify-end">
-                    <button
-                      type="button"
-                      onClick={() => openEditForm(recipient)}
-                      className={buttonStyles({ variant: "secondary", size: "sm" })}
-                    >
-                      Edit
-                    </button>
-                    {recipient.onboardingStatus !== "claimed" ? (
-                      <button
-                        type="button"
-                        disabled={issuingInviteId === recipient.id}
-                        onClick={() => {
-                          void handleIssueAccessCode(recipient);
-                        }}
-                        className={buttonStyles({ variant: "ghost", size: "sm", className: "border-emerald-500/18 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/16" })}
-                      >
-                        {issuingInviteId === recipient.id
-                          ? "Generating…"
-                          : "Access Code"}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      disabled={deletingId === recipient.id}
-                      onClick={() => {
-                        void handleDeleteRecipient(recipient);
-                      }}
-                      className={buttonStyles({ variant: "danger", size: "sm" })}
-                    >
-                      {deletingId === recipient.id ? "Deleting…" : "Delete"}
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+                      {/* Actions */}
+                      <td className="px-5 py-3">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isEditing ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={inlineSaving}
+                                onClick={() => { void saveInlineEdit(); }}
+                                className={buttonStyles({ variant: "primary", size: "sm" })}
+                              >
+                                {inlineSaving ? "Saving…" : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelInlineEdit}
+                                className={buttonStyles({ variant: "outline", size: "sm" })}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startInlineEdit(recipient)}
+                                title="Edit (E)"
+                                className={buttonStyles({ variant: "ghost", size: "sm" })}
+                              >
+                                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                </svg>
+                              </button>
+                              {recipient.onboardingStatus !== "claimed" && (
+                                <button
+                                  type="button"
+                                  disabled={issuingInviteId === recipient.id}
+                                  onClick={() => { void handleIssueAccessCode(recipient); }}
+                                  title="Issue access code"
+                                  className={buttonStyles({ variant: "ghost", size: "sm", className: "text-emerald-400 hover:text-emerald-300" })}
+                                >
+                                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                                  </svg>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={deletingId === recipient.id}
+                                onClick={() => { void handleDeleteRecipient(recipient); }}
+                                title="Delete"
+                                className={buttonStyles({ variant: "danger", size: "sm" })}
+                              >
+                                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                </svg>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredRecipients.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-5 py-10 text-center text-sm text-white/40">
+                      No recipients match &ldquo;{search}&rdquo;
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div className="border-t border-white/[0.06] px-5 py-3">
+              <p className="text-xs text-white/30">
+                {filteredRecipients.length} of {recipients.length} recipients
+                {search ? " (filtered)" : ""}
+                <span className="ml-3 text-white/20">Press <kbd className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-white/40">E</kbd> on a focused row to edit inline &middot; <kbd className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-white/40">/</kbd> to search</span>
+              </p>
+            </div>
+          </Card>
+        </>
       )}
     </div>
   );
