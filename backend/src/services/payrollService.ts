@@ -71,6 +71,7 @@ function toScheduleResponse(schedule: ScheduleRecord) {
     startTime: schedule.startTime,
     hoursPerDay: schedule.hoursPerDay,
     workingDays: schedule.workingDays,
+    maxTimeOffDaysPerYear: schedule.maxTimeOffDaysPerYear,
   };
 }
 
@@ -311,6 +312,8 @@ export class PayrollService {
 
   private timeOffAllowance(employee: EmployeeRecord, date = this.getReferenceDate(), excludeRequestId?: string) {
     const company = this.getCompany();
+    const schedule = getSchedule(employee.scheduleId, this.repository.listSchedules());
+    const maxDaysPerYear = schedule.maxTimeOffDaysPerYear ?? company.maxTimeOffDaysPerYear;
     const { yearStart, yearEnd } = timeOffYearWindow(date);
     const requests = this.repository
       .listTimeOffRequests(employee.id)
@@ -322,10 +325,10 @@ export class PayrollService {
     return {
       yearStart,
       yearEnd,
-      maxDays: company.maxTimeOffDaysPerYear,
+      maxDays: maxDaysPerYear,
       approvedDays,
       reservedDays,
-      remainingDays: Math.max(company.maxTimeOffDaysPerYear - reservedDays, 0),
+      remainingDays: Math.max(maxDaysPerYear - reservedDays, 0),
     };
   }
 
@@ -585,7 +588,14 @@ export class PayrollService {
     return this.repository.listSchedules().map(toScheduleResponse);
   }
 
-  createSchedule(input: { name: string; timezone: string; startTime: string; hoursPerDay: number; workingDays: number[] }) {
+  createSchedule(input: {
+    name: string;
+    timezone: string;
+    startTime: string;
+    hoursPerDay: number;
+    workingDays: number[];
+    maxTimeOffDaysPerYear?: number | null;
+  }) {
     const schedule: ScheduleRecord = {
       id: createId("schedule"),
       companyId: this.getCompany().id,
@@ -594,12 +604,23 @@ export class PayrollService {
       startTime: input.startTime,
       hoursPerDay: input.hoursPerDay,
       workingDays: input.workingDays,
+      maxTimeOffDaysPerYear: input.maxTimeOffDaysPerYear ?? null,
     };
     this.repository.createSchedule(schedule);
     return toScheduleResponse(schedule);
   }
 
-  updateSchedule(id: string, input: Partial<{ name: string; timezone: string; startTime: string; hoursPerDay: number; workingDays: number[] }>) {
+  updateSchedule(
+    id: string,
+    input: Partial<{
+      name: string;
+      timezone: string;
+      startTime: string;
+      hoursPerDay: number;
+      workingDays: number[];
+      maxTimeOffDaysPerYear: number | null;
+    }>,
+  ) {
     const schedule = requireRecord(this.repository.updateSchedule(id, input), "Schedule not found.");
     return toScheduleResponse(schedule);
   }

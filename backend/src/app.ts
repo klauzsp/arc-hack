@@ -48,6 +48,7 @@ const scheduleSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   hoursPerDay: z.number().positive(),
   workingDays: z.array(z.number().int().min(0).max(6)).min(1),
+  maxTimeOffDaysPerYear: z.number().int().positive().nullable().optional(),
 });
 
 const holidaySchema = z.object({

@@ -58,6 +58,8 @@ export interface ScheduleRecord {
   startTime: string;
   hoursPerDay: number;
   workingDays: number[];
+  /** Max annual time-off days for this schedule; null = use company default */
+  maxTimeOffDaysPerYear: number | null;
 }
 
 export interface HolidayRecord {
