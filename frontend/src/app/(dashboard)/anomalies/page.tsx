@@ -1,16 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuthSession } from "@/components/AuthProvider";
 import { Card } from "@/components/Card";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
-import type {
-  AnomalyRecord,
-  AnomalySummary,
-  ReputationRecord,
+import {
+  api,
+  type AnomalyRecord,
+  type AnomalyFeatures,
+  type AnomalySummary,
+  type ReputationRecord,
 } from "@/lib/api";
+import { IsolationForest } from "@/lib/isolationForest";
 
 /* ─── helpers ─── */
 
@@ -59,87 +63,192 @@ function reputationBg(score: number): string {
   return "bg-red-500/15";
 }
 
-/* ─── seed data for mock generation ─── */
+/* ─── constants ─── */
 
-const EMPLOYEES = [
-  { id: "r-1", name: "Alice Chen", occupation: 2, rate: 4200 },
-  { id: "r-2", name: "Bob Smith", occupation: 2, rate: 3800 },
-  { id: "r-3", name: "Carol Davis", occupation: 1, rate: 27500 },
-  { id: "r-4", name: "David Park", occupation: 2, rate: 5500 },
-  { id: "r-5", name: "Emma Wilson", occupation: 0, rate: 95000 },
-  { id: "r-6", name: "Frank Lopez", occupation: 2, rate: 3200 },
-  { id: "r-7", name: "Grace Kim", occupation: 2, rate: 4800 },
-  { id: "r-8", name: "Hector Ruiz", occupation: 2, rate: 2900 },
-];
+const ANOMALY_SCORE_THRESHOLD = 0.55;
+const LOW_REPUTATION_THRESHOLD = 40;
+const REPUTATION_PENALTY = 8;
+const DEFAULT_REP = 75;
 
-let _idCounter = 0;
-function mockId(): string {
-  _idCounter += 1;
-  return `anom-mock-${_idCounter}-${Date.now().toString(36)}`;
-}
+/* ─── Generate synthetic "normal" training data for the Isolation Forest.
+   These represent typical timecard patterns the model should learn as baseline. */
 
-function randBetween(min: number, max: number): number {
+function randBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
 
-function generateAnomaly(overrides?: Partial<AnomalyRecord>): AnomalyRecord {
-  const emp = pick(EMPLOYEES);
-  const severity = pick(["critical", "high", "medium", "low"] as const);
-  const score = +(randBetween(0.55, 0.95).toFixed(3));
-  const repScore = Math.round(randBetween(15, 90));
-  const action = repScore < 40 ? "usyc_rebalance" : "ceo_manual_review";
-  const status = action === "usyc_rebalance" ? "rebalance_triggered" : "pending_review";
-  const clockIn = +(randBetween(0, 23).toFixed(1));
-  const duration = +(randBetween(2, 18).toFixed(1));
-  const dayOfWeek = Math.floor(randBetween(0, 7));
+function generateNormalTrainingData(count: number): AnomalyFeatures[] {
+  const data: AnomalyFeatures[] = [];
+  for (let i = 0; i < count; i++) {
+    const clockIn = +(randBetween(7, 10).toFixed(1));     // Normal start: 7-10am
+    const duration = +(randBetween(6, 9.5).toFixed(1));   // Normal shift: 6-9.5h
+    const clockOut = +((clockIn + duration) % 24).toFixed(1);
+    const dayOfWeek = Math.floor(randBetween(1, 6));      // Weekdays
+    const occupation = Math.random() < 0.7 ? 2 : Math.random() < 0.5 ? 1 : 0;
+    const rate = occupation === 0 ? Math.round(randBetween(70000, 120000))
+               : occupation === 1 ? Math.round(randBetween(20000, 40000))
+               : Math.round(randBetween(2500, 6000));
 
-  const reasons: string[] = [];
-  if (duration > 12) reasons.push("Excessive shift duration");
-  if (clockIn < 5 || clockIn > 22) reasons.push("Unusual clock-in time");
-  if (dayOfWeek === 0 || dayOfWeek === 6) reasons.push("Weekend entry");
-  if (Math.random() > 0.5) reasons.push("Schedule deviation > 3h");
-  if (repScore < 40) reasons.push("Low Stork Oracle reputation");
-  if (reasons.length === 0) reasons.push("Statistical outlier");
-
-  const now = new Date();
-  const detectedAt = new Date(now.getTime() - Math.random() * 7 * 24 * 3600_000).toISOString();
-
-  return {
-    id: mockId(),
-    companyId: "comp-1",
-    employeeId: emp.id,
-    employeeName: emp.name,
-    anomalyScore: score,
-    severity,
-    status,
-    action,
-    reputationScore: repScore,
-    reasons,
-    features: {
+    data.push({
       clockInHour: clockIn,
-      clockOutHour: +((clockIn + duration) % 24).toFixed(1),
+      clockOutHour: clockOut,
       durationHours: duration,
       daysSincePayDay: Math.floor(randBetween(0, 14)),
       daysUntilPayDay: Math.floor(randBetween(0, 14)),
-      occupationType: emp.occupation,
-      rateCents: emp.rate,
+      occupationType: occupation,
+      rateCents: rate,
       dayOfWeek,
-      scheduleDeviation: +(randBetween(-5, 5).toFixed(1)),
-      isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
-    },
-    detectedAt,
-    resolvedAt: null,
-    resolvedBy: null,
-    rebalanceTxHash:
-      action === "usyc_rebalance"
-        ? `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("")}`
-        : null,
-    ...overrides,
-  };
+      scheduleDeviation: +(randBetween(-1.5, 1.5).toFixed(1)),
+      isWeekend: false,
+    });
+  }
+  return data;
 }
+
+/* ─── Extract features from a real time entry + context ─── */
+
+/** Parse "HH:MM" → fractional hour (e.g. "08:30" → 8.5) */
+function clockToHour(clock: string): number {
+  // Handle both "HH:MM" and full ISO datetime formats
+  if (clock.includes("T")) {
+    const d = new Date(clock);
+    return d.getHours() + d.getMinutes() / 60;
+  }
+  const parts = clock.split(":");
+  return Number(parts[0]) + Number(parts[1] ?? 0) / 60;
+}
+
+/** Compute hours between two "HH:MM" clock strings (handles overnight) */
+function hoursBetween(a: string, b: string): number {
+  const ha = clockToHour(a);
+  const hb = clockToHour(b);
+  const diff = hb - ha;
+  return diff >= 0 ? diff : diff + 24;
+}
+
+function daysBetween(dateA: string, dateB: string): number {
+  const a = new Date(dateA + "T00:00:00Z");
+  const b = new Date(dateB + "T00:00:00Z");
+  return Math.round((b.getTime() - a.getTime()) / 86_400_000);
+}
+
+interface RealTimeEntry {
+  id: string;
+  recipientId?: string;
+  employeeId?: string;
+  date: string;      // "2026-01-15"
+  clockIn: string;   // "08:30" or ISO datetime
+  clockOut: string;   // "17:00" or ISO datetime
+}
+
+interface RealRecipient {
+  id: string;
+  name: string;
+  payType: "yearly" | "daily" | "hourly";
+  rate: number;
+  scheduleId?: string;
+}
+
+interface RealPayRun {
+  periodStart: string;
+  periodEnd: string;
+  status: string;
+}
+
+interface RealSchedule {
+  id: string;
+  hoursPerDay: number;
+  workingDays: number[];
+  startTime?: string;
+}
+
+function extractFeatures(
+  entry: RealTimeEntry,
+  recipient: RealRecipient,
+  payRuns: RealPayRun[],
+  schedules: RealSchedule[],
+): AnomalyFeatures | null {
+  try {
+    const clockInHour = clockToHour(entry.clockIn);
+    const clockOutHour = clockToHour(entry.clockOut);
+    const durationHours = +hoursBetween(entry.clockIn, entry.clockOut).toFixed(2);
+    if (durationHours <= 0 || durationHours > 24) return null;
+
+    // Parse the date field (ISO date string like "2026-01-15")
+    const entryDate = new Date(entry.date + "T00:00:00Z");
+    if (isNaN(entryDate.getTime())) return null;
+    const dayOfWeek = entryDate.getUTCDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    // Occupation type: yearly=0, daily=1, hourly=2
+    const occupationType = recipient.payType === "yearly" ? 0
+      : recipient.payType === "daily" ? 1 : 2;
+
+    // Pay-day proximity: find closest pay run period boundaries
+    let daysSincePayDay = 7;
+    let daysUntilPayDay = 7;
+    for (const pr of payRuns) {
+      const sinceDays = daysBetween(pr.periodEnd, entry.date);
+      const untilDays = daysBetween(entry.date, pr.periodEnd);
+      if (sinceDays >= 0 && sinceDays < daysSincePayDay) daysSincePayDay = sinceDays;
+      if (untilDays >= 0 && untilDays < daysUntilPayDay) daysUntilPayDay = untilDays;
+    }
+
+    // Schedule deviation
+    let scheduleDeviation = 0;
+    const schedule = schedules.find((s) => s.id === recipient.scheduleId);
+    if (schedule) {
+      const scheduledStart = schedule.startTime ? clockToHour(schedule.startTime) : 9;
+      scheduleDeviation = +(clockInHour - scheduledStart).toFixed(1);
+    }
+
+    return {
+      clockInHour: +clockInHour.toFixed(1),
+      clockOutHour: +clockOutHour.toFixed(1),
+      durationHours,
+      daysSincePayDay,
+      daysUntilPayDay,
+      occupationType,
+      rateCents: Math.round(recipient.rate * 100),
+      dayOfWeek,
+      scheduleDeviation,
+      isWeekend,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* ─── Build reasons from anomaly features ─── */
+
+function buildReasons(features: AnomalyFeatures, score: number, repScore: number): string[] {
+  const reasons: string[] = [];
+  if (features.durationHours > 12) reasons.push("Excessive shift duration");
+  if (features.durationHours < 2) reasons.push("Suspiciously short shift");
+  if (features.clockInHour < 5 || features.clockInHour > 22) reasons.push("Unusual clock-in time");
+  if (features.isWeekend) reasons.push("Weekend entry");
+  if (Math.abs(features.scheduleDeviation) > 3) reasons.push("Schedule deviation > 3h");
+  if (features.daysSincePayDay <= 1) reasons.push("Entry near pay day boundary");
+  if (repScore < LOW_REPUTATION_THRESHOLD) reasons.push("Low Stork Oracle reputation");
+  if (score > 0.8) reasons.push("Strong statistical outlier");
+  if (reasons.length === 0) reasons.push("Statistical outlier detected by Isolation Forest");
+  return reasons;
+}
+
+function scoreSeverity(score: number): "critical" | "high" | "medium" | "low" {
+  if (score >= 0.85) return "critical";
+  if (score >= 0.72) return "high";
+  if (score >= 0.6) return "medium";
+  return "low";
+}
+
+let _idCounter = 0;
+function nextId(): string {
+  _idCounter += 1;
+  return `anom-${_idCounter}-${Date.now().toString(36)}`;
+}
+
+/* ─── Build summary & reputation from anomaly list ─── */
 
 function buildSummary(anomalies: AnomalyRecord[], reputations: ReputationRecord[]): AnomalySummary {
   const bySeverity = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -166,96 +275,197 @@ function buildSummary(anomalies: AnomalyRecord[], reputations: ReputationRecord[
   };
 }
 
-function buildReputations(anomalies: AnomalyRecord[]): ReputationRecord[] {
-  const map = new Map<string, { score: number; anomalyCount: number; confirmedCount: number }>();
-  for (const emp of EMPLOYEES) {
-    map.set(emp.id, { score: 75, anomalyCount: 0, confirmedCount: 0 });
-  }
-  for (const a of anomalies) {
-    const entry = map.get(a.employeeId);
-    if (entry) {
-      entry.anomalyCount++;
-      entry.score = a.reputationScore;
-      if (a.status === "confirmed") entry.confirmedCount++;
-    }
-  }
-  return EMPLOYEES.map((emp) => {
-    const e = map.get(emp.id)!;
-    return {
-      employeeId: emp.name,
-      score: e.score,
-      anomalyCount: e.anomalyCount,
-      confirmedAnomalyCount: e.confirmedCount,
-      lastUpdated: new Date().toISOString(),
-    };
-  });
-}
-
 /* ─── component ─── */
 
 export default function AnomaliesPage() {
+  const { token } = useAuthSession();
   const [anomalies, setAnomalies] = useState<AnomalyRecord[]>([]);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
+  const [scanCount, setScanCount] = useState(0);
 
-  /* Generate initial seed anomalies on mount */
+  // Reputation scores tracked client-side per employee id
+  const reputationMap = useRef<Map<string, number>>(new Map());
+
+  // Isolation Forest model reference (trained once)
+  const forestRef = useRef<IsolationForest | null>(null);
+
+  /* Train the Isolation Forest on synthetic normal data on mount */
   useEffect(() => {
-    const seed: AnomalyRecord[] = [
-      generateAnomaly({
-        employeeId: "r-8", employeeName: "Hector Ruiz", reputationScore: 25,
-        action: "usyc_rebalance", status: "rebalance_triggered", severity: "critical",
-        anomalyScore: 0.891, reasons: ["Excessive shift duration", "Low Stork Oracle reputation", "Weekend entry"],
-        features: { clockInHour: 23.2, clockOutHour: 14.5, durationHours: 15.3, daysSincePayDay: 1, daysUntilPayDay: 13, occupationType: 2, rateCents: 2900, dayOfWeek: 6, scheduleDeviation: 4.8, isWeekend: true },
-      }),
-      generateAnomaly({
-        employeeId: "r-6", employeeName: "Frank Lopez", reputationScore: 32,
-        action: "usyc_rebalance", status: "rebalance_triggered", severity: "high",
-        anomalyScore: 0.782, reasons: ["Unusual clock-in time", "Low Stork Oracle reputation"],
-        features: { clockInHour: 3.1, clockOutHour: 11.4, durationHours: 8.3, daysSincePayDay: 2, daysUntilPayDay: 12, occupationType: 2, rateCents: 3200, dayOfWeek: 1, scheduleDeviation: -3.2, isWeekend: false },
-      }),
-      generateAnomaly({
-        employeeId: "r-4", employeeName: "David Park", reputationScore: 68,
-        action: "ceo_manual_review", status: "pending_review", severity: "high",
-        anomalyScore: 0.734, reasons: ["Excessive shift duration", "Schedule deviation > 3h"],
-        features: { clockInHour: 6.0, clockOutHour: 22.5, durationHours: 16.5, daysSincePayDay: 5, daysUntilPayDay: 9, occupationType: 2, rateCents: 5500, dayOfWeek: 3, scheduleDeviation: 4.5, isWeekend: false },
-      }),
-      generateAnomaly({
-        employeeId: "r-1", employeeName: "Alice Chen", reputationScore: 82,
-        action: "ceo_manual_review", status: "pending_review", severity: "medium",
-        anomalyScore: 0.621, reasons: ["Weekend entry", "Statistical outlier"],
-        features: { clockInHour: 10.0, clockOutHour: 18.2, durationHours: 8.2, daysSincePayDay: 7, daysUntilPayDay: 7, occupationType: 2, rateCents: 4200, dayOfWeek: 0, scheduleDeviation: 1.2, isWeekend: true },
-      }),
-      generateAnomaly({
-        employeeId: "r-5", employeeName: "Emma Wilson", reputationScore: 78,
-        action: "ceo_manual_review", status: "pending_review", severity: "low",
-        anomalyScore: 0.571, reasons: ["Statistical outlier"],
-        features: { clockInHour: 9.5, clockOutHour: 17.0, durationHours: 7.5, daysSincePayDay: 10, daysUntilPayDay: 4, occupationType: 0, rateCents: 95000, dayOfWeek: 4, scheduleDeviation: -0.5, isWeekend: false },
-      }),
-      generateAnomaly({
-        employeeId: "r-2", employeeName: "Bob Smith", reputationScore: 28,
-        action: "usyc_rebalance", status: "rebalance_triggered", severity: "critical",
-        anomalyScore: 0.912, reasons: ["Excessive shift duration", "Unusual clock-in time", "Low Stork Oracle reputation"],
-        features: { clockInHour: 1.3, clockOutHour: 17.8, durationHours: 16.5, daysSincePayDay: 0, daysUntilPayDay: 14, occupationType: 2, rateCents: 3800, dayOfWeek: 5, scheduleDeviation: 6.5, isWeekend: false },
-      }),
-    ];
-    setAnomalies(seed);
+    const forest = new IsolationForest();
+    const trainingData = generateNormalTrainingData(300);
+    forest.fit(trainingData);
+    forestRef.current = forest;
     setLoading(false);
   }, []);
 
-  const reputations = useMemo(() => buildReputations(anomalies), [anomalies]);
+  /* Reputation helper — decays per anomaly, starts at DEFAULT_REP */
+  const getReputation = useCallback((empId: string): number => {
+    return reputationMap.current.get(empId) ?? DEFAULT_REP;
+  }, []);
+
+  const penaliseReputation = useCallback((empId: string) => {
+    const current = reputationMap.current.get(empId) ?? DEFAULT_REP;
+    reputationMap.current.set(empId, Math.max(0, current - REPUTATION_PENALTY));
+  }, []);
+
+  /* Derive reputations from the map for display */
+  const reputations = useMemo((): ReputationRecord[] => {
+    // Collect all known employee ids from anomalies + reputation map
+    const empMap = new Map<string, { name: string; anomalyCount: number; confirmedCount: number }>();
+
+    for (const a of anomalies) {
+      const existing = empMap.get(a.employeeId) ?? { name: a.employeeName, anomalyCount: 0, confirmedCount: 0 };
+      existing.anomalyCount++;
+      if (a.status === "confirmed") existing.confirmedCount++;
+      empMap.set(a.employeeId, existing);
+    }
+
+    return Array.from(empMap.entries()).map(([empId, info]) => ({
+      employeeId: info.name,
+      score: reputationMap.current.get(empId) ?? DEFAULT_REP,
+      anomalyCount: info.anomalyCount,
+      confirmedAnomalyCount: info.confirmedCount,
+      lastUpdated: new Date().toISOString(),
+    }));
+  }, [anomalies, scanCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const summary = useMemo(() => buildSummary(anomalies, reputations), [anomalies, reputations]);
 
-  /* Simulate a scan by generating 2-4 new anomalies with a fake delay */
+  /* ── Run Scan: fetch REAL data from live backend, score through local IF model ── */
   const runScan = async () => {
+    if (!token) {
+      setError("Sign in to scan live timecard data");
+      return;
+    }
+    const forest = forestRef.current;
+    if (!forest) {
+      setError("Isolation Forest model not ready");
+      return;
+    }
+
     setScanning(true);
     setError(null);
-    await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
-    const count = 2 + Math.floor(Math.random() * 3);
-    const newAnomalies: AnomalyRecord[] = Array.from({ length: count }, () => generateAnomaly());
-    setAnomalies((prev) => [...newAnomalies, ...prev]);
-    setScanning(false);
+
+    try {
+      // Fetch real data from the deployed backend in parallel
+      const [recipients, payRuns, schedules] = await Promise.all([
+        api.getRecipients(token),
+        api.getPayRuns(token),
+        api.getSchedules(),
+      ]);
+
+      // Fetch time entries for each employee
+      const allEntries: Array<{ entry: RealTimeEntry; recipient: RealRecipient }> = [];
+      await Promise.all(
+        recipients.map(async (r) => {
+          try {
+            const entries = await api.getEmployeeTimeEntries(token, r.id);
+            for (const e of entries) {
+              if (e.clockOut) {
+                allEntries.push({
+                  entry: e as RealTimeEntry,
+                  recipient: r as RealRecipient,
+                });
+              }
+            }
+          } catch {
+            // Employee may have no entries; skip
+          }
+        }),
+      );
+
+      if (allEntries.length === 0) {
+        setError("No completed time entries found — employees need to clock in/out first");
+        setScanning(false);
+        return;
+      }
+
+      // Extract features from real data
+      const featureData: Array<{
+        features: AnomalyFeatures;
+        entry: RealTimeEntry;
+        recipient: RealRecipient;
+      }> = [];
+
+      for (const { entry, recipient } of allEntries) {
+        const features = extractFeatures(
+          entry,
+          recipient,
+          payRuns as RealPayRun[],
+          schedules as RealSchedule[],
+        );
+        if (features) {
+          featureData.push({ features, entry, recipient });
+        }
+      }
+
+      if (featureData.length === 0) {
+        const sampleEntry = allEntries[0]?.entry;
+        const detail = sampleEntry
+          ? `Sample entry: date="${sampleEntry.date}" clockIn="${sampleEntry.clockIn}" clockOut="${sampleEntry.clockOut}"`
+          : "No entries available";
+        setError(`Could not extract features from ${allEntries.length} time entries. ${detail}`);
+        setScanning(false);
+        return;
+      }
+
+      // Run through Isolation Forest
+      const detections = forest.detect(
+        featureData.map((d) => d.features),
+        ANOMALY_SCORE_THRESHOLD,
+      );
+
+      // Convert detections to AnomalyRecords
+      const newAnomalies: AnomalyRecord[] = detections.map((det) => {
+        const item = featureData[det.index];
+        const empId = item.recipient.id;
+        const repScore = getReputation(empId);
+        const action = repScore < LOW_REPUTATION_THRESHOLD ? "usyc_rebalance" : "ceo_manual_review";
+        const status = action === "usyc_rebalance" ? "rebalance_triggered" : "pending_review";
+        const severity = scoreSeverity(det.score);
+        const reasons = buildReasons(det.features, det.score, repScore);
+
+        // Penalise reputation for this employee
+        penaliseReputation(empId);
+
+        return {
+          id: nextId(),
+          companyId: "comp-1",
+          employeeId: empId,
+          employeeName: item.recipient.name,
+          anomalyScore: +det.score.toFixed(3),
+          severity,
+          status,
+          action,
+          reputationScore: repScore,
+          reasons,
+          features: det.features,
+          detectedAt: new Date().toISOString(),
+          resolvedAt: null,
+          resolvedBy: null,
+          rebalanceTxHash:
+            action === "usyc_rebalance"
+              ? `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("")}`
+              : null,
+        };
+      });
+
+      if (newAnomalies.length === 0) {
+        setError(`Scanned ${featureData.length} time entries — no anomalies detected. All clear!`);
+      } else {
+        setError(null);
+      }
+
+      setAnomalies((prev) => [...newAnomalies, ...prev]);
+      setScanCount((c) => c + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Scan failed — could not reach backend");
+    } finally {
+      setScanning(false);
+    }
   };
 
   /* Resolve locally by updating status in state */
@@ -273,7 +483,7 @@ export default function AnomaliesPage() {
   };
 
   if (loading) {
-    return <div className="text-sm text-white/50">Loading anomaly detection…</div>;
+    return <div className="text-sm text-white/50">Training Isolation Forest model…</div>;
   }
 
   const pendingReview = anomalies.filter((a) => a.status === "pending_review");
@@ -285,7 +495,7 @@ export default function AnomaliesPage() {
       <PageHeader
         eyebrow="Anomaly Detection Agent"
         title="Timecard anomaly detection powered by Isolation Forest."
-        description="Scans employee timecards for statistical outliers using duration, time of day, pay-day proximity, and occupation features. Cross-references with Stork Oracle reputation scores to decide automatic USYC rebalance or CEO manual review."
+        description="The Isolation Forest model is trained on 300 synthetic normal timecard patterns. When you Run Scan, it fetches live employee time entries from the backend, extracts features, and scores each entry — only genuine statistical outliers are surfaced. Reputation scores decay with each flagged anomaly."
         actions={
           <Button variant="primary" size="md" onClick={runScan} disabled={scanning}>
             {scanning ? (
