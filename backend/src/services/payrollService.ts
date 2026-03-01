@@ -849,7 +849,11 @@ export class PayrollService {
     if (employee.timeTrackingMode !== "check_in_out") {
       throw new Error("Employee is configured for schedule-based tracking.");
     }
-    const date = input?.date ?? this.getReferenceDate();
+    const today = this.getReferenceDate();
+    const date = input?.date ?? today;
+    if (date > today) {
+      throw new Error("Clock-in cannot be for a future date.");
+    }
     if (this.repository.getOpenTimeEntry(employee.id)) {
       throw new Error("Employee is already clocked in.");
     }

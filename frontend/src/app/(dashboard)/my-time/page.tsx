@@ -72,6 +72,7 @@ export default function MyTimePage() {
   } = usePayroll();
   const [clockInTime, setClockInTime] = useState("09:00");
   const [clockOutTime, setClockOutTime] = useState("17:00");
+  const [clockInDate, setClockInDate] = useState(today);
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<"clock_in" | "clock_out" | null>(null);
@@ -117,6 +118,10 @@ export default function MyTimePage() {
   }, [recipient?.id, activeSession?.clockIn, schedule.hoursPerDay]);
 
   useEffect(() => {
+    if (clockInDate > today) setClockInDate(today);
+  }, [today, clockInDate]);
+
+  useEffect(() => {
     if (!editingTimeOffId) {
       setTimeOffDate(today);
       setTimeOffNote("");
@@ -140,8 +145,12 @@ export default function MyTimePage() {
     setTimeError(null);
     setIsSubmitting("clock_in");
     try {
-      await clockIn(recipient.id, { clockIn: clockInTime });
-      setTimeMessage(`Clocked in at ${clockInTime}.`);
+      await clockIn(recipient.id, { date: clockInDate, clockIn: clockInTime });
+      setTimeMessage(
+        clockInDate === today
+          ? `Clocked in at ${clockInTime}.`
+          : `Clocked in for ${formatDate(clockInDate)} at ${clockInTime}.`,
+      );
     } catch (clockActionError) {
       setTimeError(clockActionError instanceof Error ? clockActionError.message : "Clock-in failed.");
     } finally {
@@ -295,8 +304,12 @@ export default function MyTimePage() {
           <Card className="p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold text-white">Today's Session</p>
-                <p className="mt-0.5 text-xs text-white/50">{formatDate(today)}</p>
+                <p className="text-sm font-semibold text-white">
+                  {activeSession ? "Today's Session" : clockInDate === today ? "Today's Session" : "Clock in for a previous day"}
+                </p>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {activeSession ? formatDate(today) : formatDate(clockInDate)}
+                </p>
                 {activeSession && (
                   <p className="mt-2 text-xs text-emerald-400">
                     Active since {activeSession.clockIn}
@@ -304,6 +317,18 @@ export default function MyTimePage() {
                 )}
               </div>
               <div className="flex min-w-[18rem] flex-col gap-3">
+                {!activeSession && canManageOwnTime && (
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium uppercase tracking-wider text-white/40">Date</span>
+                    <input
+                      type="date"
+                      value={clockInDate}
+                      max={today}
+                      onChange={(event) => setClockInDate(event.target.value)}
+                      className={inputStyles}
+                    />
+                  </label>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1">
                     <span className="text-xs font-medium uppercase tracking-wider text-white/40">Clock In Time</span>
