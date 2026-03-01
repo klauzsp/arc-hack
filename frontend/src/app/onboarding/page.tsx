@@ -598,7 +598,7 @@ function OnboardingPageContent() {
               <ol className="mt-5 list-decimal space-y-4 pl-5 text-sm leading-6 text-white/56">
                 <li>
                   The CEO either creates your full recipient directly, or generates a single-use
-                  access code with your preset name and pay from the Recipients page.
+                  access code with your preset name and pay from the Employees page.
                 </li>
                 <li>
                   If you received a code, you redeem it here and choose your payout setup. The

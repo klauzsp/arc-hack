@@ -13,7 +13,11 @@ import { StatCard } from "@/components/StatCard";
 import { inputStyles } from "@/components/ui";
 
 function payTypeLabel(payType: string) {
-  return payType === "yearly" ? "Annual Salary" : payType === "daily" ? "Daily Rate" : "Hourly Rate";
+  return payType === "yearly"
+    ? "Annual Salary"
+    : payType === "daily"
+      ? "Daily Rate"
+      : "Hourly Rate";
 }
 
 function formatCurrency(value: number) {
@@ -31,7 +35,9 @@ function formatRate(payType: string, rate: number) {
 }
 
 function formatDays(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function formatDate(value: string) {
@@ -64,11 +70,13 @@ export default function MyEarningsPage() {
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   const connectedRecipient = getRecipientByWallet(address);
-  const sessionRecipient = employee ? getRecipientById(employee.id) ?? employee : null;
+  const sessionRecipient = employee
+    ? (getRecipientById(employee.id) ?? employee)
+    : null;
   const isAdmin = role === "admin";
   const ownRecipient = sessionRecipient ?? connectedRecipient ?? null;
   const recipient = isAdmin
-    ? getRecipientById(previewEmployeeId) ?? recipients[0]
+    ? (getRecipientById(previewEmployeeId) ?? recipients[0])
     : ownRecipient;
   const metrics = recipient ? getRecipientMetrics(recipient.id) : null;
   const canWithdraw = role === "employee" && ownRecipient?.id === recipient?.id;
@@ -76,7 +84,12 @@ export default function MyEarningsPage() {
   // Check if this employee is blocked from withdrawing due to unresolved anomalies
   const { isEmployeeBlocked } = useAnomalyDetection();
   const isBlocked = recipient ? isEmployeeBlocked(recipient.id) : false;
-  const withdrawBlocked = !canWithdraw || metrics?.availableToWithdraw === undefined || metrics.availableToWithdraw <= 0 || isWithdrawing || isBlocked;
+  const withdrawBlocked =
+    !canWithdraw ||
+    metrics?.availableToWithdraw === undefined ||
+    metrics.availableToWithdraw <= 0 ||
+    isWithdrawing ||
+    isBlocked;
 
   if (loading && !metrics) {
     return <div className="text-sm text-white/50">Loading earnings…</div>;
@@ -85,12 +98,17 @@ export default function MyEarningsPage() {
   if (!recipient || !metrics) {
     return (
       <Card className="p-5">
-        <p className="text-sm text-white/50">{error ?? "Sign in as an employee or admin to view earnings."}</p>
+        <p className="text-sm text-white/50">
+          {error ?? "Sign in as an employee or admin to view earnings."}
+        </p>
       </Card>
     );
   }
 
-  const pctPaid = metrics.ytdEarned > 0 ? Math.round((metrics.totalPaid / metrics.ytdEarned) * 100) : 0;
+  const pctPaid =
+    metrics.ytdEarned > 0
+      ? Math.round((metrics.totalPaid / metrics.ytdEarned) * 100)
+      : 0;
   const timeWorkedLabel =
     recipient.payType === "hourly"
       ? `${metrics.currentPeriodHours.toFixed(1)} hrs this period`
@@ -112,7 +130,11 @@ export default function MyEarningsPage() {
           : `Treasury paid ${formatCurrency(response.amount)} on ${response.chainPreference} to ${response.walletAddress}.`,
       );
     } catch (withdrawActionError) {
-      setWithdrawError(withdrawActionError instanceof Error ? withdrawActionError.message : "Withdrawal failed.");
+      setWithdrawError(
+        withdrawActionError instanceof Error
+          ? withdrawActionError.message
+          : "Withdrawal failed.",
+      );
     } finally {
       setIsWithdrawing(false);
     }
@@ -147,10 +169,24 @@ export default function MyEarningsPage() {
                 void handleWithdrawNow();
               }}
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 15.75L12 21m0 0l-5.25-5.25M12 21V3" />
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M17.25 15.75L12 21m0 0l-5.25-5.25M12 21V3"
+                />
               </svg>
-              {isWithdrawing ? "Withdrawing…" : isBlocked ? "Withdrawal Held" : "Withdraw Now"}
+              {isWithdrawing
+                ? "Withdrawing…"
+                : isBlocked
+                  ? "Withdrawal Held"
+                  : "Withdraw Now"}
             </Button>
           </>
         }
@@ -159,13 +195,28 @@ export default function MyEarningsPage() {
       {isBlocked && (
         <Card className="border-red-500/20 bg-red-500/10 p-4">
           <div className="flex gap-3">
-            <svg className="h-5 w-5 shrink-0 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            <svg
+              className="h-5 w-5 shrink-0 text-red-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+              />
             </svg>
             <div>
-              <p className="text-sm font-medium text-red-300">Withdrawal on hold — anomaly detected</p>
+              <p className="text-sm font-medium text-red-300">
+                Withdrawal on hold — anomaly detected
+              </p>
               <p className="mt-0.5 text-xs text-red-400/80">
-                An anomaly has been detected on your timecard and is pending review. Withdrawals are temporarily held until the anomaly is resolved by the CEO. Contact your administrator if you believe this is an error.
+                An anomaly has been detected on your timecard and is pending
+                review. Withdrawals are temporarily held until the anomaly is
+                resolved by the CEO. Contact your administrator if you believe
+                this is an error.
               </p>
             </div>
           </div>
@@ -174,7 +225,9 @@ export default function MyEarningsPage() {
 
       {withdrawMessage && (
         <Card className="border-emerald-500/20 bg-emerald-500/10 p-4">
-          <p className="text-sm font-semibold text-emerald-300">{withdrawMessage}</p>
+          <p className="text-sm font-semibold text-emerald-300">
+            {withdrawMessage}
+          </p>
         </Card>
       )}
 
@@ -215,12 +268,15 @@ export default function MyEarningsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-5">
           <h3 className="text-sm font-semibold text-white">Payout Progress</h3>
-          <p className="mt-1 text-xs text-white/50">Percentage of earned wages already paid this year</p>
+          <p className="mt-1 text-xs text-white/50">
+            Percentage of earned wages already paid this year
+          </p>
           <div className="mt-4">
             <div className="flex items-end justify-between">
               <span className="text-3xl font-bold text-white">{pctPaid}%</span>
               <span className="text-xs text-white/40">
-                {formatCurrency(metrics.totalPaid)} of {formatCurrency(metrics.ytdEarned)}
+                {formatCurrency(metrics.totalPaid)} of{" "}
+                {formatCurrency(metrics.ytdEarned)}
               </span>
             </div>
             <div className="mt-3 h-2 w-full rounded-full bg-white/[0.06]">
@@ -232,31 +288,49 @@ export default function MyEarningsPage() {
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl bg-white/[0.04] px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-white/40">Current period</p>
-              <p className="mt-1 text-sm font-semibold text-white">{timeWorkedLabel}</p>
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">
+                Current period
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {timeWorkedLabel}
+              </p>
             </div>
             <div className="rounded-xl bg-white/[0.04] px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-white/40">Year to date</p>
-              <p className="mt-1 text-sm font-semibold text-white">{ytdTimeWorkedLabel}</p>
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">
+                Year to date
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {ytdTimeWorkedLabel}
+              </p>
             </div>
           </div>
         </Card>
 
         <Card className="p-5">
-          <h3 className="text-sm font-semibold text-white">Compensation Details</h3>
-          <p className="mt-1 text-xs text-white/50">Pay basis, chain preference, and tracking model</p>
+          <h3 className="text-sm font-semibold text-white">
+            Compensation Details
+          </h3>
+          <p className="mt-1 text-xs text-white/50">
+            Pay basis, chain preference, and tracking model
+          </p>
           <dl className="mt-4 space-y-3">
             <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
               <dt className="text-sm text-white/50">Employee</dt>
-              <dd className="text-sm font-semibold text-white">{recipient.name}</dd>
+              <dd className="text-sm font-semibold text-white">
+                {recipient.name}
+              </dd>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
               <dt className="text-sm text-white/50">Pay Type</dt>
-              <dd className="text-sm font-semibold text-white">{payTypeLabel(recipient.payType)}</dd>
+              <dd className="text-sm font-semibold text-white">
+                {payTypeLabel(recipient.payType)}
+              </dd>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
               <dt className="text-sm text-white/50">Rate</dt>
-              <dd className="text-sm font-semibold text-white">{formatRate(recipient.payType, recipient.rate)}</dd>
+              <dd className="text-sm font-semibold text-white">
+                {formatRate(recipient.payType, recipient.rate)}
+              </dd>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
               <dt className="text-sm text-white/50">Preferred Chain</dt>
@@ -268,13 +342,17 @@ export default function MyEarningsPage() {
             <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
               <dt className="text-sm text-white/50">Tracking Mode</dt>
               <dd className="text-sm font-semibold text-white">
-                {recipient.timeTrackingMode === "check_in_out" ? "Manual Check-in/out" : "Schedule-based"}
+                {recipient.timeTrackingMode === "check_in_out"
+                  ? "Manual Check-in/out"
+                  : "Schedule-based"}
               </dd>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3">
               <dt className="text-sm text-white/50">Worked Since</dt>
               <dd className="text-sm font-semibold text-white">
-                {recipient.employmentStartDate ? formatDate(recipient.employmentStartDate) : "Not set"}
+                {recipient.employmentStartDate
+                  ? formatDate(recipient.employmentStartDate)
+                  : "Not set"}
               </dd>
             </div>
           </dl>
@@ -284,36 +362,30 @@ export default function MyEarningsPage() {
       <Card className="p-5">
         <div className="grid gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-white/40">Breakdown input</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-white/40">
+              Breakdown input
+            </p>
             <p className="mt-1 text-sm font-semibold text-white">
-              {recipient.payType === "hourly" ? `${metrics.currentPeriodHours.toFixed(1)} hours` : `${formatDays(metrics.currentPeriodDays)} working days`}
+              {recipient.payType === "hourly"
+                ? `${metrics.currentPeriodHours.toFixed(1)} hours`
+                : `${formatDays(metrics.currentPeriodDays)} working days`}
             </p>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-white/40">Holiday exclusions</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-white/40">
+              Holiday exclusions
+            </p>
             <p className="mt-1 text-sm font-semibold text-white">
-              {metrics.currentPeriodHolidayCount} this period / {metrics.ytdHolidayCount} YTD
+              {metrics.currentPeriodHolidayCount} this period /{" "}
+              {metrics.ytdHolidayCount} YTD
             </p>
           </div>
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-white/40">Schedule baseline</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-white/40">
+              Schedule baseline
+            </p>
             <p className="mt-1 text-sm font-semibold text-white">
               {metrics.scheduleHoursPerDay} hrs scheduled day
-            </p>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="border-amber-500/20 bg-amber-500/10 p-4">
-        <div className="flex gap-3">
-          <svg className="h-5 w-5 shrink-0 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-          </svg>
-          <div>
-            <p className="text-sm font-medium text-amber-300">How withdrawals work</p>
-            <p className="mt-0.5 text-xs text-amber-400/80">
-              Available to withdraw is calculated as earned wages to date minus amounts already paid in executed pay runs.
-              Schedule-based earnings accrue continuously through the configured workday, while holidays and approved days off are excluded.
             </p>
           </div>
         </div>

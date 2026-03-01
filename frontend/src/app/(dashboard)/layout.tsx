@@ -8,7 +8,7 @@ import { TopBar } from "@/components/TopBar";
 const routeTitles: Record<string, string> = {
   "/": "Dashboard",
   "/pay-runs": "Pay Runs",
-  "/recipients": "Recipients",
+  "/recipients": "Employees",
   "/schedules": "Schedules",
   "/holidays": "Holidays",
   "/treasury": "Treasury",

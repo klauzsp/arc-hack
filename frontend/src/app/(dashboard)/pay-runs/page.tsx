@@ -259,7 +259,7 @@ export default function PayRunsPage() {
                 <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Period</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-white/40">Status</th>
                 <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Amount</th>
-                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Recipients</th>
+                <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Employees</th>
                 <th className="px-5 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-white/40">Tx Hash</th>
                 <th className="px-5 py-3.5" />
               </tr>

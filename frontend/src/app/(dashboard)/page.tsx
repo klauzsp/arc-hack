@@ -55,7 +55,7 @@ export default function DashboardPage() {
         description="Track your treasury balance, upcoming payroll, and payout readiness across every connected chain."
         meta={
           <>
-            <Badge variant="info">{recipients.length} recipients</Badge>
+            <Badge variant="info">{recipients.length} employees</Badge>
             <Badge variant="default">{formatDate(today)}</Badge>
           </>
         }
@@ -129,7 +129,7 @@ export default function DashboardPage() {
                     {formatDate(payRun.periodStart)} – {formatDate(payRun.periodEnd)}
                   </p>
                   <p className="mt-0.5 text-[11px] text-white/35">
-                    {payRun.recipientCount} recipients
+                    {payRun.recipientCount} employees
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2.5">

@@ -217,13 +217,13 @@ export default function PayRunDetailPage() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Total Amount" value={formatCurrency(payRun.totalAmount)} icon="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        <StatCard label="Recipients" value={String(payRun.recipientCount)} icon="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        <StatCard label="Employees" value={String(payRun.recipientCount)} icon="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
         <StatCard label="Avg per Recipient" value={formatCurrency(Math.round(payRun.totalAmount / payRun.recipientCount))} icon="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
       </div>
 
       <Card>
         <div className="border-b border-white/[0.06] px-6 py-4">
-          <h3 className="text-sm font-semibold text-white">Recipient Breakdown</h3>
+          <h3 className="text-sm font-semibold text-white">Employee Breakdown</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">

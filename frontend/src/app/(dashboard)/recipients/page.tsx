@@ -207,7 +207,7 @@ export default function RecipientsPage() {
   const handleBulkDelete = useCallback(async () => {
     if (selectedRecipients.length === 0) return;
     const confirmed = window.confirm(
-      `Delete ${selectedRecipients.length} recipient(s)? This keeps historical pay run records but removes them from future pay runs.`,
+      `Delete ${selectedRecipients.length} employee(s)? This keeps historical pay run records but removes them from future pay runs.`,
     );
     if (!confirmed) return;
     setBulkDeleting(true);
@@ -217,7 +217,7 @@ export default function RecipientsPage() {
       for (const r of selectedRecipients) {
         await deleteRecipient(r.id);
       }
-      setMessage(`${selectedRecipients.length} recipient(s) deleted.`);
+      setMessage(`${selectedRecipients.length} employee(s) deleted.`);
       setSelectedIds(new Set());
       if (editingId && selectedIds.has(editingId)) resetForm();
     } catch (e) {
@@ -244,7 +244,7 @@ export default function RecipientsPage() {
       for (const r of selectedRecipients) {
         await updateRecipient(r.id, payload);
       }
-      setMessage(`${selectedRecipients.length} recipient(s) updated.`);
+      setMessage(`${selectedRecipients.length} employee(s) updated.`);
       setShowBulkEdit(false);
       setSelectedIds(new Set());
     } catch (e) {
@@ -377,7 +377,7 @@ export default function RecipientsPage() {
 
   const handleDeleteRecipient = async (recipient: Recipient) => {
     const confirmed = window.confirm(
-      `Delete ${recipient.name} from active recipients?\n\nThis keeps historical pay run records intact but removes the recipient from future treasury pay runs.`,
+      `Delete ${recipient.name} from active employees?\n\nThis keeps historical pay run records intact but removes the employee from future treasury pay runs.`,
     );
     if (!confirmed) return;
 
@@ -423,18 +423,18 @@ export default function RecipientsPage() {
   };
 
   if (loading && recipients.length === 0) {
-    return <div className="text-sm text-white/50">Loading recipients…</div>;
+    return <div className="text-sm text-white/50">Loading employees…</div>;
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Team Payroll"
-        title="Recipients"
+        title="Employees"
         description="Manage live employees, invite-only onboarding codes, and payout destinations from one roster."
         meta={
           <>
-            <Badge variant="info">{recipients.length} recipients</Badge>
+            <Badge variant="info">{recipients.length} employees</Badge>
             <Badge variant="default">{activeChains} active chains</Badge>
           </>
         }
@@ -457,7 +457,7 @@ export default function RecipientsPage() {
                   d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
                 />
               </svg>
-              Add Full Recipient
+              Add Full Employee
             </Button>
           </>
         }
@@ -474,13 +474,13 @@ export default function RecipientsPage() {
         <StatCard
           label="Pending Onboarding"
           value={String(pendingClaims)}
-          subtitle="Recipients awaiting claim or access code redemption"
+          subtitle="Employees awaiting claim or access code redemption"
           icon="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
         />
         <StatCard
           label="Payout Rail Mix"
           value={String(activeChains)}
-          subtitle="Networks currently assigned across recipients"
+          subtitle="Networks currently assigned across employees"
           icon="M3.75 3v11.25m0 0a2.25 2.25 0 002.25 2.25h11.25m-13.5-2.25l5.233-5.233a1.125 1.125 0 011.591 0l2.258 2.258a1.125 1.125 0 001.591 0l4.858-4.858"
         />
       </div>
@@ -693,16 +693,16 @@ export default function RecipientsPage() {
 
       {recipients.length === 0 ? (
         <Card className="p-8 text-center">
-          <p className="text-base font-semibold text-white">No recipients yet</p>
+          <p className="text-base font-semibold text-white">No employees yet</p>
           <p className="mt-2 text-sm text-white/52">
-            Add a full recipient or issue a one-time access code to start onboarding employees.
+            Add a full employee or issue a one-time access code to start onboarding employees.
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Button variant="secondary" onClick={() => openAddForm("invite")}>
               Generate Access Code
             </Button>
             <Button variant="primary" onClick={() => openAddForm("full")}>
-              Add Full Recipient
+              Add Full Employee
             </Button>
           </div>
         </Card>
@@ -728,7 +728,7 @@ export default function RecipientsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder='Search recipients by name, wallet, or chain…  Press "/" to focus'
+              placeholder='Search employees by name, wallet, or chain…  Press "/" to focus'
               className={`${inputStyles} pl-11 pr-10`}
             />
             {search && (
@@ -1074,7 +1074,7 @@ export default function RecipientsPage() {
                 {filteredRecipients.length === 0 && (
                   <tr>
                     <td colSpan={9} className="px-5 py-10 text-center text-sm text-white/40">
-                      No recipients match &ldquo;{search}&rdquo;
+                      No employees match &ldquo;{search}&rdquo;
                     </td>
                   </tr>
                 )}
@@ -1082,7 +1082,7 @@ export default function RecipientsPage() {
             </table>
             <div className="border-t border-white/[0.06] px-5 py-3">
               <p className="text-xs text-white/30">
-                {filteredRecipients.length} of {recipients.length} recipients
+                {filteredRecipients.length} of {recipients.length} employees
                 {search ? " (filtered)" : ""}
                 <span className="ml-3 text-white/20">Press <kbd className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-white/40">E</kbd> on a focused row to edit inline &middot; <kbd className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-white/40">/</kbd> to search</span>
               </p>
