@@ -826,6 +826,12 @@ export function buildApp(config: AppConfig) {
     repository.close();
   });
 
+  app.get("/debug/routes", async () => {
+    const table = app.printRoutes({ includeHooks: false });
+    const lines = table.split("\n").filter((line) => line.trim().length > 0);
+    return { routes: lines, note: "If DELETE /pay-runs/:id is missing here, the deployed build does not include it." };
+  });
+
   return {
     app,
     repository,
