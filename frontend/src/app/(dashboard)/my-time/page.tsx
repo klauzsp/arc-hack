@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/Badge";
 import { Button, buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { PageHeader } from "@/components/PageHeader";
+import { TimeOffCalendar } from "@/components/TimeOffCalendar";
 import { inputStyles } from "@/components/ui";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -71,6 +72,7 @@ export default function MyTimePage() {
   } = usePayroll();
   const [clockInTime, setClockInTime] = useState("09:00");
   const [clockOutTime, setClockOutTime] = useState("17:00");
+  const [clockInDate, setClockInDate] = useState(today);
   const [timeMessage, setTimeMessage] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<"clock_in" | "clock_out" | null>(null);
@@ -80,6 +82,8 @@ export default function MyTimePage() {
   const [timeOffMessage, setTimeOffMessage] = useState<string | null>(null);
   const [timeOffError, setTimeOffError] = useState<string | null>(null);
   const [isSavingTimeOff, setIsSavingTimeOff] = useState(false);
+  const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
+  const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
 
   const connectedRecipient = getRecipientByWallet(address);
   const sessionRecipient = employee ? getRecipientById(employee.id) ?? employee : null;
@@ -114,6 +118,10 @@ export default function MyTimePage() {
   }, [recipient?.id, activeSession?.clockIn, schedule.hoursPerDay]);
 
   useEffect(() => {
+    if (clockInDate > today) setClockInDate(today);
+  }, [today, clockInDate]);
+
+  useEffect(() => {
     if (!editingTimeOffId) {
       setTimeOffDate(today);
       setTimeOffNote("");
@@ -137,8 +145,12 @@ export default function MyTimePage() {
     setTimeError(null);
     setIsSubmitting("clock_in");
     try {
-      await clockIn(recipient.id, { clockIn: clockInTime });
-      setTimeMessage(`Clocked in at ${clockInTime}.`);
+      await clockIn(recipient.id, { date: clockInDate, clockIn: clockInTime });
+      setTimeMessage(
+        clockInDate === today
+          ? `Clocked in at ${clockInTime}.`
+          : `Clocked in for ${formatDate(clockInDate)} at ${clockInTime}.`,
+      );
     } catch (clockActionError) {
       setTimeError(clockActionError instanceof Error ? clockActionError.message : "Clock-in failed.");
     } finally {
@@ -168,19 +180,55 @@ export default function MyTimePage() {
       if (editingTimeOffId) {
         await updateMyTimeOff(editingTimeOffId, { date: timeOffDate, note: timeOffNote || null });
         setTimeOffMessage("Time-off request updated.");
+        setEditingTimeOffId(null);
+        setTimeOffDate(today);
+        setTimeOffNote("");
       } else {
         await createMyTimeOff({ date: timeOffDate, note: timeOffNote || null });
         setTimeOffMessage("Time-off request submitted for approval.");
+        setTimeOffDate(today);
+        setTimeOffNote("");
       }
-      setEditingTimeOffId(null);
-      setTimeOffDate(today);
-      setTimeOffNote("");
     } catch (timeOffActionError) {
       setTimeOffError(timeOffActionError instanceof Error ? timeOffActionError.message : "Failed to save day off.");
     } finally {
       setIsSavingTimeOff(false);
     }
   };
+
+  const handleRequestSelectedDays = useCallback(async () => {
+    const toAdd = Array.from(selectedToAdd).sort();
+    const toRemove = Array.from(selectedToRemove);
+    if (toAdd.length === 0 && toRemove.length === 0) return;
+    setTimeOffMessage(null);
+    setTimeOffError(null);
+    setIsSavingTimeOff(true);
+    try {
+      const requestGroupId = toAdd.length > 0 ? `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : undefined;
+      await Promise.all(
+        toAdd.map((date) => createMyTimeOff({ date, note: timeOffNote || null, requestGroupId: requestGroupId ?? null })),
+      );
+      const requestByDate = new Map(myTimeOffRequests.map((r) => [r.date, r]));
+      const toCancel = toRemove.filter((date) => requestByDate.has(date)).map((date) => requestByDate.get(date)!);
+      await Promise.all(toCancel.map((req) => updateMyTimeOff(req.id, { status: "cancelled" })));
+      const added = toAdd.length;
+      const cancelled = toCancel.length;
+      if (added > 0 && cancelled > 0) {
+        setTimeOffMessage(`${added} request(s) submitted, ${cancelled} request(s) cancelled.`);
+      } else if (added > 0) {
+        setTimeOffMessage(`${added} day-off request(s) submitted for approval.`);
+      } else if (cancelled > 0) {
+        setTimeOffMessage(`${cancelled} request(s) cancelled.`);
+      }
+      setSelectedToAdd(new Set());
+      setSelectedToRemove(new Set());
+      setTimeOffNote("");
+    } catch (err) {
+      setTimeOffError(err instanceof Error ? err.message : "Failed to submit or cancel day-off requests.");
+    } finally {
+      setIsSavingTimeOff(false);
+    }
+  }, [selectedToAdd, selectedToRemove, timeOffNote, createMyTimeOff, updateMyTimeOff, myTimeOffRequests]);
 
   const handleCancelTimeOff = async (id: string) => {
     setTimeOffMessage(null);
@@ -256,8 +304,12 @@ export default function MyTimePage() {
           <Card className="p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold text-white">Today's Session</p>
-                <p className="mt-0.5 text-xs text-white/50">{formatDate(today)}</p>
+                <p className="text-sm font-semibold text-white">
+                  {activeSession ? "Today's Session" : clockInDate === today ? "Today's Session" : "Clock in for a previous day"}
+                </p>
+                <p className="mt-0.5 text-xs text-white/50">
+                  {activeSession ? formatDate(today) : formatDate(clockInDate)}
+                </p>
                 {activeSession && (
                   <p className="mt-2 text-xs text-emerald-400">
                     Active since {activeSession.clockIn}
@@ -265,6 +317,18 @@ export default function MyTimePage() {
                 )}
               </div>
               <div className="flex min-w-[18rem] flex-col gap-3">
+                {!activeSession && canManageOwnTime && (
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium uppercase tracking-wider text-white/40">Date</span>
+                    <input
+                      type="date"
+                      value={clockInDate}
+                      max={today}
+                      onChange={(event) => setClockInDate(event.target.value)}
+                      className={inputStyles}
+                    />
+                  </label>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1">
                     <span className="text-xs font-medium uppercase tracking-wider text-white/40">Clock In Time</span>
@@ -499,31 +563,59 @@ export default function MyTimePage() {
                 </div>
               )}
             </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-[1fr,1fr,auto]">
-              <input
-                type="date"
-                value={timeOffDate}
-                min={today}
-                onChange={(event) => setTimeOffDate(event.target.value)}
-                className={inputStyles}
+            <div className="mt-4">
+              <TimeOffCalendar
+                holidays={holidays}
+                workingDays={schedule?.workingDays ?? [1, 2, 3, 4, 5]}
+                requests={myTimeOffRequests.map((r) => ({ date: r.date, status: r.status }))}
+                today={today}
+                remainingDays={myTimeOffAllowance?.remainingDays ?? 0}
+                selectedToAdd={selectedToAdd}
+                selectedToRemove={selectedToRemove}
+                onSelectedToAddChange={setSelectedToAdd}
+                onSelectedToRemoveChange={setSelectedToRemove}
+                disabled={isSavingTimeOff}
               />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <input
                 value={timeOffNote}
                 onChange={(event) => setTimeOffNote(event.target.value)}
-                placeholder="Optional note"
+                placeholder="Optional note for new requests"
                 className={inputStyles}
+                style={{ minWidth: "200px" }}
               />
               <Button
-                disabled={isSavingTimeOff || !timeOffDate}
-                onClick={() => {
-                  void handleSaveTimeOff();
-                }}
+                disabled={
+                  isSavingTimeOff || (selectedToAdd.size === 0 && selectedToRemove.size === 0)
+                }
+                onClick={() => void handleRequestSelectedDays()}
               >
-                {isSavingTimeOff ? "Saving..." : editingTimeOffId ? "Save Change" : "Request Day Off"}
+                {isSavingTimeOff
+                  ? "Submitting…"
+                  : (() => {
+                      const a = selectedToAdd.size;
+                      const r = selectedToRemove.size;
+                      if (a > 0 && r > 0) return `Request ${a} day(s), cancel ${r}`;
+                      if (a > 0) return `Request ${a} day${a !== 1 ? "s" : ""} off`;
+                      if (r > 0) return `Cancel ${r} request${r !== 1 ? "s" : ""}`;
+                      return "Apply";
+                    })()}
               </Button>
             </div>
             {editingTimeOffId && (
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-4">
+                <p className="text-xs text-white/50">Editing a single request:</p>
+                <input
+                  type="date"
+                  value={timeOffDate}
+                  min={today}
+                  onChange={(event) => setTimeOffDate(event.target.value)}
+                  className={inputStyles}
+                />
+                <Button disabled={isSavingTimeOff || !timeOffDate} onClick={() => void handleSaveTimeOff()}>
+                  {isSavingTimeOff ? "Saving..." : "Save change"}
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -532,7 +624,7 @@ export default function MyTimePage() {
                     setTimeOffNote("");
                   }}
                 >
-                  Cancel Edit
+                  Cancel edit
                 </Button>
               </div>
             )}

@@ -62,8 +62,10 @@ type PayrollContextValue = {
   createRecipientAccessCode: (recipientId: string) => Promise<InviteCodeResponse>;
   createSchedule: (values: Omit<Schedule, "id">) => Promise<Schedule>;
   updateSchedule: (scheduleId: string, values: Partial<Omit<Schedule, "id">>) => Promise<Schedule>;
+  deleteSchedule: (scheduleId: string) => Promise<void>;
   createHoliday: (values: { date: string; name: string }) => Promise<HolidayRecord>;
   updateHoliday: (holidayId: string, values: Partial<{ date: string; name: string }>) => Promise<HolidayRecord>;
+  deleteHoliday: (holidayId: string) => Promise<void>;
   createPayRun: () => Promise<PayRun>;
   createPayRunForPeriod: (periodStart: string, periodEnd: string) => Promise<PayRun>;
   deletePayRun: (payRunId: string) => Promise<void>;
@@ -73,9 +75,10 @@ type PayrollContextValue = {
   clockIn: (recipientId: string, input?: { date?: string; clockIn?: string }) => Promise<void>;
   clockOut: (recipientId: string, input?: { clockOut?: string }) => Promise<void>;
   withdrawNow: (input?: { amount?: number }) => Promise<WithdrawResponse>;
-  createMyTimeOff: (input: { date: string; note?: string | null }) => Promise<TimeOffRequest>;
+  createMyTimeOff: (input: { date: string; note?: string | null; requestGroupId?: string | null }) => Promise<TimeOffRequest>;
   updateMyTimeOff: (id: string, input: Partial<{ date: string; note: string | null; status: "cancelled" }>) => Promise<TimeOffRequest>;
   reviewTimeOffRequest: (id: string, input: { status: "approved" | "rejected" | "cancelled" }) => Promise<TimeOffRequest>;
+  reviewTimeOffRequestGroup: (groupId: string, input: { status: "approved" | "rejected" }) => Promise<TimeOffRequest[]>;
   updateTimeOffPolicy: (input: { maxDaysPerYear: number }) => Promise<TimeOffPolicy>;
   createPolicy: (input: { name: string; type: "payday" | "treasury_threshold" | "manual"; status?: "active" | "paused"; config?: Record<string, unknown> }) => Promise<PolicySummary>;
   updatePolicy: (policyId: string, input: Partial<{ name: string; type: "payday" | "treasury_threshold" | "manual"; status: "active" | "paused"; config: Record<string, unknown> }>) => Promise<PolicySummary>;
@@ -309,6 +312,12 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
     return updated;
   };
 
+  const deleteSchedule = async (scheduleId: string) => {
+    if (!token) throw new Error("Admin session required.");
+    await api.deleteSchedule(token, scheduleId);
+    await refresh();
+  };
+
   const createHoliday = async (values: { date: string; name: string }) => {
     if (!token) throw new Error("Admin session required.");
     const created = await api.createHoliday(token, values);
@@ -321,6 +330,12 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
     const updated = await api.updateHoliday(token, holidayId, values);
     await refresh();
     return updated;
+  };
+
+  const deleteHoliday = async (holidayId: string) => {
+    if (!token) throw new Error("Admin session required.");
+    await api.deleteHoliday(token, holidayId);
+    await refresh();
   };
 
   const createPayRun = async () => {
@@ -351,7 +366,6 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
   const deletePayRun = async (payRunId: string) => {
     if (!token) throw new Error("Admin session required.");
     await api.deletePayRun(token, payRunId);
-    void refresh();
   };
 
   const approvePayRun = async (payRunId: string) => {
@@ -431,6 +445,16 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
     return request;
   };
 
+  const reviewTimeOffRequestGroup = async (
+    groupId: string,
+    input: { status: "approved" | "rejected" },
+  ) => {
+    if (!token) throw new Error("Admin session required.");
+    const requests = await api.reviewTimeOffRequestGroup(token, groupId, input);
+    await refresh();
+    return requests;
+  };
+
   const updateTimeOffPolicy = async (input: { maxDaysPerYear: number }) => {
     if (!token) throw new Error("Admin session required.");
     const policy = await api.updateTimeOffPolicy(token, input);
@@ -505,8 +529,10 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
         createRecipientAccessCode,
         createSchedule,
         updateSchedule,
+        deleteSchedule,
         createHoliday,
         updateHoliday,
+        deleteHoliday,
         createPayRun,
         createPayRunForPeriod,
         deletePayRun,
@@ -519,6 +545,7 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
         createMyTimeOff,
         updateMyTimeOff,
         reviewTimeOffRequest,
+        reviewTimeOffRequestGroup,
         updateTimeOffPolicy,
         createPolicy,
         updatePolicy,

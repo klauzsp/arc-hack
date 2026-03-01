@@ -156,6 +156,7 @@ function toTimeOffRequestResponse(request: TimeOffRequestRecord, employee?: Empl
     date: request.date,
     note: request.note,
     status: request.status,
+    requestGroupId: request.requestGroupId,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
     reviewedAt: request.reviewedAt,
@@ -621,8 +622,23 @@ export class PayrollService {
       maxTimeOffDaysPerYear: number | null;
     }>,
   ) {
-    const schedule = requireRecord(this.repository.updateSchedule(id, input), "Schedule not found.");
+    const patch: Partial<ScheduleRecord> = { ...input };
+    if (Object.prototype.hasOwnProperty.call(input, "maxTimeOffDaysPerYear")) {
+      patch.maxTimeOffDaysPerYear = input.maxTimeOffDaysPerYear ?? null;
+    }
+    const schedule = requireRecord(this.repository.updateSchedule(id, patch), "Schedule not found.");
     return toScheduleResponse(schedule);
+  }
+
+  deleteSchedule(id: string) {
+    const count = this.repository.countEmployeesByScheduleId(id);
+    if (count > 0) {
+      throw new Error(
+        `Cannot delete schedule: ${count} employee${count === 1 ? "" : "s"} assigned. Reassign them to another schedule first.`,
+      );
+    }
+    const deleted = this.repository.deleteSchedule(id);
+    if (!deleted) throw new Error("Schedule not found.");
   }
 
   listHolidays() {
@@ -643,6 +659,11 @@ export class PayrollService {
   updateHoliday(id: string, input: Partial<{ date: string; name: string }>) {
     const holiday = requireRecord(this.repository.updateHoliday(id, input), "Holiday not found.");
     return toHolidayResponse(holiday);
+  }
+
+  deleteHoliday(id: string) {
+    const deleted = this.repository.deleteHoliday(id);
+    if (!deleted) throw new Error("Holiday not found.");
   }
 
   getProfile(address: string) {
@@ -704,7 +725,7 @@ export class PayrollService {
     };
   }
 
-  createMyTimeOff(address: string, input: { date: string; note?: string | null }) {
+  createMyTimeOff(address: string, input: { date: string; note?: string | null; requestGroupId?: string | null }) {
     const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
     this.validateTimeOffDate(employee, input.date);
     this.assertTimeOffWithinLimit(employee, input.date);
@@ -717,6 +738,7 @@ export class PayrollService {
       date: input.date,
       note: input.note?.trim() || null,
       status: "pending",
+      requestGroupId: input.requestGroupId ?? null,
       createdAt: now,
       updatedAt: now,
       reviewedAt: null,
@@ -782,6 +804,36 @@ export class PayrollService {
     return toTimeOffRequestResponse(updated, employee);
   }
 
+  reviewTimeOffRequestGroup(groupId: string, input: { status: "approved" | "rejected" }) {
+    const groupRequests = this.repository.listTimeOffRequestsByGroupId(groupId);
+    if (groupRequests.length === 0) {
+      throw new Error("No time-off requests found for this group.");
+    }
+    const employees = new Map(
+      groupRequests.map((r) => [r.employeeId, requireRecord(this.repository.getEmployee(r.employeeId), "Employee not found.")]),
+    );
+    const now = nowIso();
+    for (const request of groupRequests) {
+      if (request.status !== "pending") continue;
+      const employee = employees.get(request.employeeId)!;
+      if (input.status === "approved") {
+        this.validateTimeOffDate(employee, request.date, request.id);
+        this.assertTimeOffWithinLimit(employee, request.date, request.id);
+      }
+      this.repository.updateTimeOffRequest(request.id, {
+        status: input.status,
+        updatedAt: now,
+        reviewedAt: now,
+      });
+    }
+    return groupRequests
+      .filter((r) => r.status === "pending")
+      .map((r) => toTimeOffRequestResponse(
+        requireRecord(this.repository.getTimeOffRequest(r.id), "Time-off request not found."),
+        employees.get(r.employeeId) ?? null,
+      ));
+  }
+
   getMyTimeEntries(address: string, start?: string, end?: string) {
     const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
     return this.repository.listTimeEntries(employee.id, start, end).map(toTimeEntryResponse);
@@ -797,7 +849,11 @@ export class PayrollService {
     if (employee.timeTrackingMode !== "check_in_out") {
       throw new Error("Employee is configured for schedule-based tracking.");
     }
-    const date = input?.date ?? this.getReferenceDate();
+    const today = this.getReferenceDate();
+    const date = input?.date ?? today;
+    if (date > today) {
+      throw new Error("Clock-in cannot be for a future date.");
+    }
     if (this.repository.getOpenTimeEntry(employee.id)) {
       throw new Error("Employee is already clocked in.");
     }

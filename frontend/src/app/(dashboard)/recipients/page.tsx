@@ -120,6 +120,17 @@ export default function RecipientsPage() {
   const [inlineForm, setInlineForm] = useState<RecipientFormState>(emptyRecipient);
   const [inlineSaving, setInlineSaving] = useState(false);
 
+  // --- Multi-select ---
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkEditForm, setBulkEditForm] = useState<{
+    scheduleId: string | null;
+    chainPreference: string | null;
+    timeTrackingMode: TimeTrackingMode | null;
+  }>({ scheduleId: null, chainPreference: null, timeTrackingMode: null });
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   const filteredRecipients = useMemo(() => {
     if (!search.trim()) return recipients;
     const q = search.toLowerCase();
@@ -170,6 +181,78 @@ export default function RecipientsPage() {
       setInlineSaving(false);
     }
   }, [inlineEditId, inlineForm, updateRecipient]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAllFiltered = useCallback(() => {
+    const allFilteredIds = new Set(filteredRecipients.map((r) => r.id));
+    const allSelected = filteredRecipients.length > 0 && filteredRecipients.every((r) => selectedIds.has(r.id));
+    setSelectedIds(allSelected ? new Set() : allFilteredIds);
+  }, [filteredRecipients, selectedIds]);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const selectedRecipients = useMemo(
+    () => recipients.filter((r) => selectedIds.has(r.id)),
+    [recipients, selectedIds],
+  );
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedRecipients.length === 0) return;
+    const confirmed = window.confirm(
+      `Delete ${selectedRecipients.length} recipient(s)? This keeps historical pay run records but removes them from future pay runs.`,
+    );
+    if (!confirmed) return;
+    setBulkDeleting(true);
+    setDeleteError(null);
+    setMessage(null);
+    try {
+      for (const r of selectedRecipients) {
+        await deleteRecipient(r.id);
+      }
+      setMessage(`${selectedRecipients.length} recipient(s) deleted.`);
+      setSelectedIds(new Set());
+      if (editingId && selectedIds.has(editingId)) resetForm();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Bulk delete failed.");
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [selectedRecipients, deleteRecipient, editingId, selectedIds]);
+
+  const handleBulkEdit = useCallback(async () => {
+    if (selectedRecipients.length === 0) return;
+    const payload: Partial<RecipientFormState> = {};
+    if (bulkEditForm.scheduleId != null && bulkEditForm.scheduleId !== "") payload.scheduleId = bulkEditForm.scheduleId;
+    if (bulkEditForm.chainPreference != null && bulkEditForm.chainPreference !== "") payload.chainPreference = bulkEditForm.chainPreference;
+    if (bulkEditForm.timeTrackingMode != null && bulkEditForm.timeTrackingMode !== "") payload.timeTrackingMode = bulkEditForm.timeTrackingMode as TimeTrackingMode;
+    if (Object.keys(payload).length === 0) {
+      setDeleteError("Select at least one field to update.");
+      return;
+    }
+    setBulkSaving(true);
+    setDeleteError(null);
+    setMessage(null);
+    try {
+      for (const r of selectedRecipients) {
+        await updateRecipient(r.id, payload);
+      }
+      setMessage(`${selectedRecipients.length} recipient(s) updated.`);
+      setShowBulkEdit(false);
+      setSelectedIds(new Set());
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Bulk update failed.");
+    } finally {
+      setBulkSaving(false);
+    }
+  }, [selectedRecipients, bulkEditForm, updateRecipient]);
 
   // Global "E" hotkey — only fires when no input/select/textarea is focused
   useEffect(() => {
@@ -661,11 +744,108 @@ export default function RecipientsPage() {
             )}
           </div>
 
+          {/* Bulk actions bar */}
+          {selectedIds.size > 0 && (
+            <Card className="flex flex-wrap items-center gap-4 border-[#fc72ff]/20 bg-[#fc72ff]/[0.06] p-4">
+              <span className="text-sm font-medium text-white">
+                {selectedIds.size} selected
+              </span>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowBulkEdit(true)}
+                  disabled={bulkDeleting}
+                >
+                  Edit selected
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+                  onClick={() => void handleBulkDelete()}
+                  disabled={bulkDeleting}
+                >
+                  {bulkDeleting ? "Deleting…" : "Delete selected"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={clearSelection} disabled={bulkDeleting}>
+                  Clear selection
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* Bulk edit form */}
+          {showBulkEdit && selectedIds.size > 0 && (
+            <Card className="p-5">
+              <h3 className="text-sm font-semibold text-white">Apply to {selectedIds.size} recipient(s)</h3>
+              <p className="mt-1 text-xs text-white/50">Only fields you change will be updated. Leave as &ldquo;No change&rdquo; to skip.</p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                <label className="space-y-1">
+                  <span className="block text-xs font-medium text-white/40">Schedule</span>
+                  <select
+                    value={bulkEditForm.scheduleId ?? ""}
+                    onChange={(e) => setBulkEditForm((f) => ({ ...f, scheduleId: e.target.value || null }))}
+                    className={inputStyles}
+                  >
+                    <option value="">No change</option>
+                    {schedules.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="block text-xs font-medium text-white/40">Chain</span>
+                  <select
+                    value={bulkEditForm.chainPreference ?? ""}
+                    onChange={(e) => setBulkEditForm((f) => ({ ...f, chainPreference: e.target.value || null }))}
+                    className={inputStyles}
+                  >
+                    <option value="">No change</option>
+                    <option value="Arc">Arc</option>
+                    <option value="Ethereum">Ethereum</option>
+                    <option value="Base">Base</option>
+                    <option value="Arbitrum">Arbitrum</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="block text-xs font-medium text-white/40">Tracking</span>
+                  <select
+                    value={bulkEditForm.timeTrackingMode ?? ""}
+                    onChange={(e) => setBulkEditForm((f) => ({ ...f, timeTrackingMode: (e.target.value || null) as TimeTrackingMode | null }))}
+                    className={inputStyles}
+                  >
+                    <option value="">No change</option>
+                    <option value="schedule_based">Schedule-based</option>
+                    <option value="check_in_out">Check-in/out</option>
+                  </select>
+                </label>
+              </div>
+              <div className="mt-4 flex gap-2">
+                <Button variant="primary" onClick={() => void handleBulkEdit()} disabled={bulkSaving}>
+                  {bulkSaving ? "Applying…" : "Apply to selected"}
+                </Button>
+                <Button variant="outline" onClick={() => setShowBulkEdit(false)} disabled={bulkSaving}>
+                  Cancel
+                </Button>
+              </div>
+            </Card>
+          )}
+
           {/* Recipients table */}
           <Card className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead>
                 <tr className="border-b border-white/[0.06]">
+                  <th className="w-10 px-3 py-3.5">
+                    <input
+                      type="checkbox"
+                      checked={filteredRecipients.length > 0 && filteredRecipients.every((r) => selectedIds.has(r.id))}
+                      onChange={selectAllFiltered}
+                      className="h-4 w-4 rounded border-white/20 bg-white/5 text-[#fc72ff] focus:ring-[#fc72ff]/40"
+                      aria-label="Select all on page"
+                    />
+                  </th>
                   <th className="px-5 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Name</th>
                   <th className="px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Pay Type</th>
                   <th className="px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Rate</th>
@@ -707,8 +887,19 @@ export default function RecipientsPage() {
                         isEditing
                           ? "bg-[#fc72ff]/[0.03]"
                           : "hover:bg-white/[0.02] focus:bg-white/[0.02]"
-                      }`}
+                      } ${selectedIds.has(recipient.id) ? "bg-[#fc72ff]/[0.06]" : ""}`}
                     >
+                      {/* Select */}
+                      <td className="w-10 px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(recipient.id)}
+                          onChange={() => toggleSelect(recipient.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 rounded border-white/20 bg-white/5 text-[#fc72ff] focus:ring-[#fc72ff]/40"
+                          aria-label={`Select ${recipient.name}`}
+                        />
+                      </td>
                       {/* Name */}
                       <td className="px-5 py-3">
                         {isEditing ? (
@@ -882,7 +1073,7 @@ export default function RecipientsPage() {
                 })}
                 {filteredRecipients.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-5 py-10 text-center text-sm text-white/40">
+                    <td colSpan={9} className="px-5 py-10 text-center text-sm text-white/40">
                       No recipients match &ldquo;{search}&rdquo;
                     </td>
                   </tr>

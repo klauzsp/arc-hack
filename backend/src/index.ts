@@ -23,6 +23,9 @@ async function main() {
   const config = loadConfig();
   const { app, services } = buildApp(config);
 
+  await app.ready();
+  console.log("Registered routes:\n" + app.printRoutes());
+
   let interval: NodeJS.Timeout | null = null;
   if (config.jobsEnabled) {
     interval = setInterval(() => {

@@ -8,8 +8,7 @@ frontend/.env*.local
 frontend/*.log
 frontend/.DS_Store
 
-# Keep context small
-backend
+# Keep context small (do not exclude backend – backend Dockerfile needs COPY backend backend)
 contracts
 node_modules
 .git

@@ -15,6 +15,8 @@ const chainService_1 = require("./services/chainService");
 const circleWalletService_1 = require("./services/circleWalletService");
 const jobService_1 = require("./services/jobService");
 const payrollService_1 = require("./services/payrollService");
+const anomalyDetectionAgent_1 = require("./services/anomalyDetectionAgent");
+const storkOracleService_1 = require("./services/storkOracleService");
 const dates_1 = require("./lib/dates");
 class HttpError extends Error {
     statusCode;
@@ -42,6 +44,7 @@ const scheduleSchema = zod_1.z.object({
     startTime: zod_1.z.string().regex(/^\d{2}:\d{2}$/),
     hoursPerDay: zod_1.z.number().positive(),
     workingDays: zod_1.z.array(zod_1.z.number().int().min(0).max(6)).min(1),
+    maxTimeOffDaysPerYear: zod_1.z.number().int().positive().nullable().optional(),
 });
 const holidaySchema = zod_1.z.object({
     date: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -85,6 +88,10 @@ const timeOffPolicySchema = zod_1.z.object({
 const employeeTimeOffSchema = zod_1.z.object({
     date: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     note: zod_1.z.string().max(500).nullable().optional(),
+    requestGroupId: zod_1.z.string().min(1).nullable().optional(),
+});
+const adminTimeOffGroupReviewSchema = zod_1.z.object({
+    status: zod_1.z.enum(["approved", "rejected"]),
 });
 const employeeTimeOffUpdateSchema = zod_1.z.object({
     date: zod_1.z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -188,6 +195,8 @@ function buildApp(config) {
     const circleWalletService = new circleWalletService_1.CircleWalletService(config);
     const authService = new authService_1.AuthService(repository, config, circleWalletService);
     const jobService = new jobService_1.JobService(payrollService);
+    const storkOracleService = new storkOracleService_1.StorkOracleService();
+    const anomalyAgent = new anomalyDetectionAgent_1.AnomalyDetectionAgent(storkOracleService);
     const app = (0, fastify_1.default)({ logger: false });
     void app.register(cors_1.default, {
         origin(origin, callback) {
@@ -498,6 +507,12 @@ function buildApp(config) {
         const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
         return payrollService.updateSchedule(params.id, scheduleSchema.partial().parse(request.body ?? {}));
     });
+    app.delete("/schedules/:id", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        payrollService.deleteSchedule(params.id);
+        return { ok: true };
+    });
     app.get("/holidays", async () => payrollService.listHolidays());
     app.post("/holidays", async (request) => {
         await getSessionOrThrow(request, authService, "admin");
@@ -590,6 +605,12 @@ function buildApp(config) {
         const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
         return payrollService.updatePayRun(params.id, payRunSchema.partial().parse(request.body ?? {}));
     });
+    app.delete("/pay-runs/:id", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        payrollService.deletePayRun(params.id);
+        return { ok: true };
+    });
     app.post("/pay-runs/:id/approve", async (request) => {
         await getSessionOrThrow(request, authService, "admin");
         const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
@@ -646,6 +667,65 @@ function buildApp(config) {
         const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
         return payrollService.reviewTimeOffRequest(params.id, adminTimeOffReviewSchema.parse(request.body ?? {}));
     });
+    app.patch("/time-off/requests/group/:groupId", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ groupId: zod_1.z.string().min(1) }).parse(request.params);
+        return payrollService.reviewTimeOffRequestGroup(params.groupId, adminTimeOffGroupReviewSchema.parse(request.body ?? {}));
+    });
+    // ── Anomaly Detection Agent ─────────────────────────────────────────────
+    app.post("/anomalies/scan", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const employees = repository.listEmployees();
+        const timeEntries = employees.flatMap((e) => repository.listTimeEntries(e.id));
+        const payRuns = repository.listPayRuns();
+        const schedules = repository.listSchedules();
+        const result = anomalyAgent.scan(employees, timeEntries, payRuns, schedules, config.companyId, config.seedDate);
+        // For anomalies that trigger USYC rebalance, execute the rebalance
+        for (const anomaly of result.anomalies) {
+            if (anomaly.action === "usyc_rebalance") {
+                try {
+                    const rebalanceResult = await payrollService.manualRebalance({
+                        direction: "usyc_to_usdc",
+                        amount: 100, // Rebalance $100 USYC → USDC as protective measure
+                    });
+                    anomalyAgent.setRebalanceTxHash(anomaly.id, rebalanceResult.txHash);
+                    anomaly.rebalanceTxHash = rebalanceResult.txHash;
+                }
+                catch {
+                    // Rebalance may fail if insufficient USYC; anomaly still recorded
+                }
+            }
+        }
+        return result;
+    });
+    app.get("/anomalies", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const query = zod_1.z.object({
+            employeeId: zod_1.z.string().optional(),
+            status: zod_1.z.string().optional(),
+        }).parse(request.query ?? {});
+        return anomalyAgent.getAnomalies(query);
+    });
+    app.get("/anomalies/summary", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        return anomalyAgent.getSummary();
+    });
+    app.patch("/anomalies/:id/resolve", async (request) => {
+        const session = await getSessionOrThrow(request, authService, "admin");
+        const params = zod_1.z.object({ id: zod_1.z.string().min(1) }).parse(request.params);
+        const body = zod_1.z.object({
+            resolution: zod_1.z.enum(["confirmed", "review_dismissed"]),
+        }).parse(request.body ?? {});
+        const result = anomalyAgent.resolveAnomaly(params.id, body.resolution, session.address);
+        if (!result)
+            throw new HttpError(404, "Anomaly not found.");
+        return result;
+    });
+    app.get("/anomalies/reputations", async (request) => {
+        await getSessionOrThrow(request, authService, "admin");
+        const employees = repository.listEmployees();
+        return storkOracleService.getReputations(employees.map((e) => e.id));
+    });
     app.addHook("onClose", async () => {
         repository.close();
     });
@@ -658,6 +738,8 @@ function buildApp(config) {
             jobService,
             chainService,
             circleWalletService,
+            anomalyAgent,
+            storkOracleService,
         },
     };
 }
