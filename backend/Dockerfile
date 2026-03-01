@@ -1,15 +1,25 @@
-# Use this when Railway "Root Directory" = backend (build context is the backend folder).
-# If your Root Directory is the repo root, use the root Dockerfile that copies the workspace instead.
+# Build context must be the repo root (Railway: Root Directory = '' or '.', Dockerfile = backend/Dockerfile).
+# Copies workspace files and backend, then builds only the backend.
 
 FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package.json ./
-RUN npm install
+# Copy workspace manifests first for cache
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-COPY . .
-RUN npm run build
+# Copy backend manifest so pnpm can resolve workspace
+COPY backend/package.json backend/package.json
+
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+RUN pnpm install --frozen-lockfile --filter backend...
+
+# Copy backend source (requires backend/ in context – do not add "backend" to root .dockerignore)
+COPY backend backend
+
+# Build and start backend only
+WORKDIR /app/backend
+RUN pnpm run build
 
 ENV NODE_ENV=production
 EXPOSE 8080
