@@ -14,6 +14,10 @@ function readEnv(value: string | undefined) {
   return trimmed ? trimmed : undefined;
 }
 
+function noTrailingSlash(url: string) {
+  return url.replace(/\/+$/, "") || url;
+}
+
 const apiUrl = readEnv(process.env.NEXT_PUBLIC_API_URL);
 const arcRpcUrl = readEnv(process.env.NEXT_PUBLIC_ARC_RPC_URL);
 const walletConnectProjectId = readEnv(process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID);
@@ -29,13 +33,13 @@ const circleAppId = readEnv(process.env.NEXT_PUBLIC_CIRCLE_APP_ID);
 const circleGoogleClientId = readEnv(process.env.NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID);
 
 export const publicConfig = {
-  apiUrl: apiUrl ?? DEFAULT_API_URL,
+  apiUrl: noTrailingSlash(apiUrl ?? DEFAULT_API_URL),
   apiUrlSource: apiUrl ? "env" : "default",
   arcRpcUrl: arcRpcUrl ?? DEFAULT_ARC_RPC_URL,
   arcRpcUrlSource: arcRpcUrl ? "env" : "default",
   walletConnectProjectId: walletConnectProjectId ?? null,
   walletConnectProjectIdSource: walletConnectProjectId ? "env" : "missing",
-  appUrl: appUrl ?? DEFAULT_APP_URL,
+  appUrl: noTrailingSlash(appUrl ?? DEFAULT_APP_URL),
   appUrlSource: appUrl ? "env" : "default",
   arcCeoAddress: arcCeoAddress ?? DEFAULT_CEO_ADDRESS,
   arcCeoAddressSource: arcCeoAddress ? "env" : "default",

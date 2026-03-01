@@ -9,7 +9,8 @@ RUN npm ci 2>/dev/null || npm install
 
 # Build-time env (NEXT_PUBLIC_* are inlined at build)
 ARG NEXT_PUBLIC_API_URL=https://backend-production-e877.up.railway.app
-ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+# Must match your deployed frontend URL so Google OAuth redirect_uri matches; override in Railway Variables if needed
+ARG NEXT_PUBLIC_APP_URL=https://frontend-production-1461.up.railway.app
 ARG NEXT_PUBLIC_ARC_RPC_URL=https://rpc.testnet.arc.network
 ARG NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
 ARG NEXT_PUBLIC_ARC_CORE_ADDRESS=0xa8ce1f3b7c71a9c577686c93c4e8b4924bb5c5ca
