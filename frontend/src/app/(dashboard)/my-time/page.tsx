@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/Badge";
 import { Button, buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { PageHeader } from "@/components/PageHeader";
+import { TimeOffCalendar } from "@/components/TimeOffCalendar";
 import { inputStyles } from "@/components/ui";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -80,6 +81,7 @@ export default function MyTimePage() {
   const [timeOffMessage, setTimeOffMessage] = useState<string | null>(null);
   const [timeOffError, setTimeOffError] = useState<string | null>(null);
   const [isSavingTimeOff, setIsSavingTimeOff] = useState(false);
+  const [selectedTimeOffDates, setSelectedTimeOffDates] = useState<Set<string>>(new Set());
 
   const connectedRecipient = getRecipientByWallet(address);
   const sessionRecipient = employee ? getRecipientById(employee.id) ?? employee : null;
@@ -168,19 +170,39 @@ export default function MyTimePage() {
       if (editingTimeOffId) {
         await updateMyTimeOff(editingTimeOffId, { date: timeOffDate, note: timeOffNote || null });
         setTimeOffMessage("Time-off request updated.");
+        setEditingTimeOffId(null);
+        setTimeOffDate(today);
+        setTimeOffNote("");
       } else {
         await createMyTimeOff({ date: timeOffDate, note: timeOffNote || null });
         setTimeOffMessage("Time-off request submitted for approval.");
+        setTimeOffDate(today);
+        setTimeOffNote("");
       }
-      setEditingTimeOffId(null);
-      setTimeOffDate(today);
-      setTimeOffNote("");
     } catch (timeOffActionError) {
       setTimeOffError(timeOffActionError instanceof Error ? timeOffActionError.message : "Failed to save day off.");
     } finally {
       setIsSavingTimeOff(false);
     }
   };
+
+  const handleRequestSelectedDays = useCallback(async () => {
+    const dates = Array.from(selectedTimeOffDates).sort();
+    if (dates.length === 0) return;
+    setTimeOffMessage(null);
+    setTimeOffError(null);
+    setIsSavingTimeOff(true);
+    try {
+      await Promise.all(dates.map((date) => createMyTimeOff({ date, note: timeOffNote || null })));
+      setTimeOffMessage(`${dates.length} day-off request(s) submitted for approval.`);
+      setSelectedTimeOffDates(new Set());
+      setTimeOffNote("");
+    } catch (err) {
+      setTimeOffError(err instanceof Error ? err.message : "Failed to submit day-off requests.");
+    } finally {
+      setIsSavingTimeOff(false);
+    }
+  }, [selectedTimeOffDates, timeOffNote, createMyTimeOff]);
 
   const handleCancelTimeOff = async (id: string) => {
     setTimeOffMessage(null);
@@ -499,31 +521,46 @@ export default function MyTimePage() {
                 </div>
               )}
             </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-[1fr,1fr,auto]">
-              <input
-                type="date"
-                value={timeOffDate}
-                min={today}
-                onChange={(event) => setTimeOffDate(event.target.value)}
-                className={inputStyles}
+            <div className="mt-4">
+              <TimeOffCalendar
+                holidays={holidays}
+                workingDays={schedule?.workingDays ?? [1, 2, 3, 4, 5]}
+                requests={myTimeOffRequests.map((r) => ({ date: r.date, status: r.status }))}
+                today={today}
+                remainingDays={myTimeOffAllowance?.remainingDays ?? 0}
+                selectedDates={selectedTimeOffDates}
+                onSelectedDatesChange={setSelectedTimeOffDates}
+                disabled={isSavingTimeOff}
               />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <input
                 value={timeOffNote}
                 onChange={(event) => setTimeOffNote(event.target.value)}
-                placeholder="Optional note"
+                placeholder="Optional note for requests"
                 className={inputStyles}
+                style={{ minWidth: "200px" }}
               />
               <Button
-                disabled={isSavingTimeOff || !timeOffDate}
-                onClick={() => {
-                  void handleSaveTimeOff();
-                }}
+                disabled={isSavingTimeOff || selectedTimeOffDates.size === 0}
+                onClick={() => void handleRequestSelectedDays()}
               >
-                {isSavingTimeOff ? "Saving..." : editingTimeOffId ? "Save Change" : "Request Day Off"}
+                {isSavingTimeOff ? "Submitting…" : `Request ${selectedTimeOffDates.size} day${selectedTimeOffDates.size !== 1 ? "s" : ""} off`}
               </Button>
             </div>
             {editingTimeOffId && (
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-4">
+                <p className="text-xs text-white/50">Editing a single request:</p>
+                <input
+                  type="date"
+                  value={timeOffDate}
+                  min={today}
+                  onChange={(event) => setTimeOffDate(event.target.value)}
+                  className={inputStyles}
+                />
+                <Button disabled={isSavingTimeOff || !timeOffDate} onClick={() => void handleSaveTimeOff()}>
+                  {isSavingTimeOff ? "Saving..." : "Save change"}
+                </Button>
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -532,7 +569,7 @@ export default function MyTimePage() {
                     setTimeOffNote("");
                   }}
                 >
-                  Cancel Edit
+                  Cancel edit
                 </Button>
               </div>
             )}
