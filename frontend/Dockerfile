@@ -52,18 +52,20 @@ ENV HOSTNAME=0.0.0.0
 
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
-# Standalone layout: .next/standalone/frontend/server.js (package name = frontend)
-COPY --from=builder /app/public ./frontend/public
+# Standalone: server.js can be at standalone root or in standalone/frontend/ (nested by package name)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./frontend/.next/static
+# If nested, flatten so server.js and .next/ end up in /app
+RUN if [ -f ./frontend/server.js ]; then cp -a ./frontend/. ./ && rm -rf ./frontend; fi
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Railway often runs "pnpm start" when it detects a pnpm repo; install pnpm and a start script that runs the server
+# Railway may run "pnpm start"; install pnpm and a start script
 RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
-RUN echo '{"name":"frontend","private":true,"scripts":{"start":"node server.js"}}' > ./frontend/package.json
+RUN echo '{"name":"frontend","private":true,"scripts":{"start":"node server.js"}}' > ./package.json
 
 USER nextjs
 
-WORKDIR /app/frontend
+WORKDIR /app
 EXPOSE 3000
 
 CMD ["node", "server.js"]
