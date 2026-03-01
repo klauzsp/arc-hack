@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAccount } from "wagmi";
 import { usePayroll } from "@/components/PayrollProvider";
 import { useAuthSession } from "@/components/AuthProvider";
+import { useAnomalyDetection } from "@/components/AnomalyProvider";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
@@ -72,6 +73,11 @@ export default function MyEarningsPage() {
   const metrics = recipient ? getRecipientMetrics(recipient.id) : null;
   const canWithdraw = role === "employee" && ownRecipient?.id === recipient?.id;
 
+  // Check if this employee is blocked from withdrawing due to unresolved anomalies
+  const { isEmployeeBlocked } = useAnomalyDetection();
+  const isBlocked = recipient ? isEmployeeBlocked(recipient.id) : false;
+  const withdrawBlocked = !canWithdraw || metrics?.availableToWithdraw === undefined || metrics.availableToWithdraw <= 0 || isWithdrawing || isBlocked;
+
   if (loading && !metrics) {
     return <div className="text-sm text-white/50">Loading earnings…</div>;
   }
@@ -136,7 +142,7 @@ export default function MyEarningsPage() {
             ) : null}
             <Button
               variant="success"
-              disabled={!canWithdraw || metrics.availableToWithdraw <= 0 || isWithdrawing}
+              disabled={withdrawBlocked}
               onClick={() => {
                 void handleWithdrawNow();
               }}
@@ -144,11 +150,27 @@ export default function MyEarningsPage() {
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 15.75L12 21m0 0l-5.25-5.25M12 21V3" />
               </svg>
-              {isWithdrawing ? "Withdrawing…" : "Withdraw Now"}
+              {isWithdrawing ? "Withdrawing…" : isBlocked ? "Withdrawal Held" : "Withdraw Now"}
             </Button>
           </>
         }
       />
+
+      {isBlocked && (
+        <Card className="border-red-500/20 bg-red-500/10 p-4">
+          <div className="flex gap-3">
+            <svg className="h-5 w-5 shrink-0 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+            </svg>
+            <div>
+              <p className="text-sm font-medium text-red-300">Withdrawal on hold — anomaly detected</p>
+              <p className="mt-0.5 text-xs text-red-400/80">
+                An anomaly has been detected on your timecard and is pending review. Withdrawals are temporarily held until the anomaly is resolved by the CEO. Contact your administrator if you believe this is an error.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {withdrawMessage && (
         <Card className="border-emerald-500/20 bg-emerald-500/10 p-4">

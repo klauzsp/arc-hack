@@ -1,20 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAuthSession } from "@/components/AuthProvider";
+import { useAnomalyDetection } from "@/components/AnomalyProvider";
 import { Card } from "@/components/Card";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
-import {
-  api,
-  type AnomalyRecord,
-  type AnomalyFeatures,
-  type AnomalySummary,
-  type ReputationRecord,
-} from "@/lib/api";
-import { IsolationForest } from "@/lib/isolationForest";
 
 /* ─── helpers ─── */
 
@@ -38,10 +29,6 @@ function statusVariant(status: string): "success" | "warning" | "error" | "info"
   }
 }
 
-function actionLabel(action: string): string {
-  return action === "usyc_rebalance" ? "USYC Rebalance" : "CEO Manual Review";
-}
-
 function formatTime(isoString: string): string {
   return new Date(isoString).toLocaleString("en-US", {
     month: "short",
@@ -57,447 +44,27 @@ function reputationColor(score: number): string {
   return "text-red-400";
 }
 
-function reputationBg(score: number): string {
-  if (score >= 70) return "bg-emerald-500/15";
-  if (score >= 40) return "bg-amber-500/15";
-  return "bg-red-500/15";
-}
-
-/* ─── constants ─── */
-
-const ANOMALY_SCORE_THRESHOLD = 0.55;
-const LOW_REPUTATION_THRESHOLD = 40;
-const REPUTATION_PENALTY_REBALANCE = 8;
-const REPUTATION_PENALTY_REVIEW = 4;
-const REPUTATION_RECOVERY = 0.5;
-const DEFAULT_REP = 75;
-
-/* ─── Generate synthetic "normal" training data for the Isolation Forest.
-   These represent typical timecard patterns the model should learn as baseline. */
-
-function randBetween(min: number, max: number) {
-  return min + Math.random() * (max - min);
-}
-
-function generateNormalTrainingData(count: number): AnomalyFeatures[] {
-  const data: AnomalyFeatures[] = [];
-  for (let i = 0; i < count; i++) {
-    const clockIn = +(randBetween(7, 10).toFixed(1));     // Normal start: 7-10am
-    const duration = +(randBetween(6, 9.5).toFixed(1));   // Normal shift: 6-9.5h
-    const clockOut = +((clockIn + duration) % 24).toFixed(1);
-    const dayOfWeek = Math.floor(randBetween(1, 6));      // Weekdays
-    const occupation = Math.random() < 0.7 ? 2 : Math.random() < 0.5 ? 1 : 0;
-    const rate = occupation === 0 ? Math.round(randBetween(70000, 120000))
-               : occupation === 1 ? Math.round(randBetween(20000, 40000))
-               : Math.round(randBetween(2500, 6000));
-
-    data.push({
-      clockInHour: clockIn,
-      clockOutHour: clockOut,
-      durationHours: duration,
-      daysSincePayDay: Math.floor(randBetween(0, 14)),
-      daysUntilPayDay: Math.floor(randBetween(0, 14)),
-      occupationType: occupation,
-      rateCents: rate,
-      dayOfWeek,
-      scheduleDeviation: +(randBetween(-1.5, 1.5).toFixed(1)),
-      isWeekend: false,
-    });
-  }
-  return data;
-}
-
-/* ─── Extract features from a real time entry + context ─── */
-
-/** Parse "HH:MM" → fractional hour (e.g. "08:30" → 8.5) */
-function clockToHour(clock: string): number {
-  // Handle both "HH:MM" and full ISO datetime formats
-  if (clock.includes("T")) {
-    const d = new Date(clock);
-    return d.getHours() + d.getMinutes() / 60;
-  }
-  const parts = clock.split(":");
-  return Number(parts[0]) + Number(parts[1] ?? 0) / 60;
-}
-
-/** Compute hours between two "HH:MM" clock strings (handles overnight) */
-function hoursBetween(a: string, b: string): number {
-  const ha = clockToHour(a);
-  const hb = clockToHour(b);
-  const diff = hb - ha;
-  return diff >= 0 ? diff : diff + 24;
-}
-
-function daysBetween(dateA: string, dateB: string): number {
-  const a = new Date(dateA + "T00:00:00Z");
-  const b = new Date(dateB + "T00:00:00Z");
-  return Math.round((b.getTime() - a.getTime()) / 86_400_000);
-}
-
-interface RealTimeEntry {
-  id: string;
-  recipientId?: string;
-  employeeId?: string;
-  date: string;      // "2026-01-15"
-  clockIn: string;   // "08:30" or ISO datetime
-  clockOut: string;   // "17:00" or ISO datetime
-}
-
-interface RealRecipient {
-  id: string;
-  name: string;
-  payType: "yearly" | "daily" | "hourly";
-  rate: number;
-  scheduleId?: string;
-}
-
-interface RealPayRun {
-  periodStart: string;
-  periodEnd: string;
-  status: string;
-}
-
-interface RealSchedule {
-  id: string;
-  hoursPerDay: number;
-  workingDays: number[];
-  startTime?: string;
-}
-
-function extractFeatures(
-  entry: RealTimeEntry,
-  recipient: RealRecipient,
-  payRuns: RealPayRun[],
-  schedules: RealSchedule[],
-): AnomalyFeatures | null {
-  try {
-    const clockInHour = clockToHour(entry.clockIn);
-    const clockOutHour = clockToHour(entry.clockOut);
-    const durationHours = +hoursBetween(entry.clockIn, entry.clockOut).toFixed(2);
-    if (durationHours <= 0 || durationHours > 24) return null;
-
-    // Parse the date field (ISO date string like "2026-01-15")
-    const entryDate = new Date(entry.date + "T00:00:00Z");
-    if (isNaN(entryDate.getTime())) return null;
-    const dayOfWeek = entryDate.getUTCDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-    // Occupation type: yearly=0, daily=1, hourly=2
-    const occupationType = recipient.payType === "yearly" ? 0
-      : recipient.payType === "daily" ? 1 : 2;
-
-    // Pay-day proximity: find closest pay run period boundaries
-    let daysSincePayDay = 7;
-    let daysUntilPayDay = 7;
-    for (const pr of payRuns) {
-      const sinceDays = daysBetween(pr.periodEnd, entry.date);
-      const untilDays = daysBetween(entry.date, pr.periodEnd);
-      if (sinceDays >= 0 && sinceDays < daysSincePayDay) daysSincePayDay = sinceDays;
-      if (untilDays >= 0 && untilDays < daysUntilPayDay) daysUntilPayDay = untilDays;
-    }
-
-    // Schedule deviation
-    let scheduleDeviation = 0;
-    const schedule = schedules.find((s) => s.id === recipient.scheduleId);
-    if (schedule) {
-      const scheduledStart = schedule.startTime ? clockToHour(schedule.startTime) : 9;
-      scheduleDeviation = +(clockInHour - scheduledStart).toFixed(1);
-    }
-
-    return {
-      clockInHour: +clockInHour.toFixed(1),
-      clockOutHour: +clockOutHour.toFixed(1),
-      durationHours,
-      daysSincePayDay,
-      daysUntilPayDay,
-      occupationType,
-      rateCents: Math.round(recipient.rate * 100),
-      dayOfWeek,
-      scheduleDeviation,
-      isWeekend,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/* ─── Build reasons from anomaly features ─── */
-
-function buildReasons(features: AnomalyFeatures, score: number, repScore: number): string[] {
-  const reasons: string[] = [];
-  if (features.durationHours > 12) reasons.push("Excessive shift duration");
-  if (features.durationHours < 2) reasons.push("Suspiciously short shift");
-  if (features.clockInHour < 5 || features.clockInHour > 22) reasons.push("Unusual clock-in time");
-  if (features.isWeekend) reasons.push("Weekend entry");
-  if (Math.abs(features.scheduleDeviation) > 3) reasons.push("Schedule deviation > 3h");
-  if (features.daysSincePayDay <= 1) reasons.push("Entry near pay day boundary");
-  if (repScore < LOW_REPUTATION_THRESHOLD) reasons.push("Low Stork Oracle reputation");
-  if (score > 0.8) reasons.push("Strong statistical outlier");
-  if (reasons.length === 0) reasons.push("Statistical outlier detected by Isolation Forest");
-  return reasons;
-}
-
-function scoreSeverity(score: number): "critical" | "high" | "medium" | "low" {
-  if (score >= 0.85) return "critical";
-  if (score >= 0.72) return "high";
-  if (score >= 0.6) return "medium";
-  return "low";
-}
-
-let _idCounter = 0;
-function nextId(): string {
-  _idCounter += 1;
-  return `anom-${_idCounter}-${Date.now().toString(36)}`;
-}
-
-/* ─── Build summary & reputation from anomaly list ─── */
-
-function buildSummary(anomalies: AnomalyRecord[], reputations: ReputationRecord[]): AnomalySummary {
-  const bySeverity = { critical: 0, high: 0, medium: 0, low: 0 };
-  let pending = 0;
-  let rebalances = 0;
-  for (const a of anomalies) {
-    bySeverity[a.severity as keyof typeof bySeverity] =
-      (bySeverity[a.severity as keyof typeof bySeverity] ?? 0) + 1;
-    if (a.status === "pending_review") pending++;
-    if (a.status === "rebalance_triggered") rebalances++;
-  }
-  const avg =
-    reputations.length > 0
-      ? Math.round(reputations.reduce((s, r) => s + r.score, 0) / reputations.length)
-      : 75;
-
-  return {
-    totalAnomalies: anomalies.length,
-    pendingReview: pending,
-    rebalancesTriggered: rebalances,
-    avgReputationScore: avg,
-    bySeverity,
-    recentAnomalies: anomalies.slice(0, 5),
-  };
-}
-
 /* ─── component ─── */
 
 export default function AnomaliesPage() {
-  const { token } = useAuthSession();
-  const [anomalies, setAnomalies] = useState<AnomalyRecord[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [resolving, setResolving] = useState<string | null>(null);
-  const [scanCount, setScanCount] = useState(0);
+  const {
+    anomalies,
+    summary,
+    reputations,
+    scanning,
+    modelLoading,
+    error,
+    resolving,
+    scanCount,
+    autoScanEnabled,
+    nextScanIn,
+    blockedEmployeeIds,
+    runScan,
+    resolve,
+    setAutoScanEnabled,
+  } = useAnomalyDetection();
 
-  // Reputation scores tracked client-side per employee id
-  const reputationMap = useRef<Map<string, number>>(new Map());
-
-  // Isolation Forest model reference (trained once)
-  const forestRef = useRef<IsolationForest | null>(null);
-
-  /* Train the Isolation Forest on synthetic normal data on mount */
-  useEffect(() => {
-    const forest = new IsolationForest();
-    const trainingData = generateNormalTrainingData(300);
-    forest.fit(trainingData);
-    forestRef.current = forest;
-    setLoading(false);
-  }, []);
-
-  /* Reputation helper — decays per anomaly, starts at DEFAULT_REP */
-  const getReputation = useCallback((empId: string): number => {
-    return reputationMap.current.get(empId) ?? DEFAULT_REP;
-  }, []);
-
-  const penaliseReputation = useCallback((empId: string, penalty: number) => {
-    const current = reputationMap.current.get(empId) ?? DEFAULT_REP;
-    reputationMap.current.set(empId, Math.max(0, current - penalty));
-  }, []);
-
-  const recoverReputation = useCallback((empId: string) => {
-    const current = reputationMap.current.get(empId) ?? DEFAULT_REP;
-    reputationMap.current.set(empId, Math.min(100, current + REPUTATION_RECOVERY));
-  }, []);
-
-  /* Derive reputations from the map for display */
-  const reputations = useMemo((): ReputationRecord[] => {
-    // Collect all known employee ids from anomalies + reputation map
-    const empMap = new Map<string, { name: string; anomalyCount: number; confirmedCount: number }>();
-
-    for (const a of anomalies) {
-      const existing = empMap.get(a.employeeId) ?? { name: a.employeeName, anomalyCount: 0, confirmedCount: 0 };
-      existing.anomalyCount++;
-      if (a.status === "confirmed") existing.confirmedCount++;
-      empMap.set(a.employeeId, existing);
-    }
-
-    return Array.from(empMap.entries()).map(([empId, info]) => ({
-      employeeId: info.name,
-      score: reputationMap.current.get(empId) ?? DEFAULT_REP,
-      anomalyCount: info.anomalyCount,
-      confirmedAnomalyCount: info.confirmedCount,
-      lastUpdated: new Date().toISOString(),
-    }));
-  }, [anomalies, scanCount]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const summary = useMemo(() => buildSummary(anomalies, reputations), [anomalies, reputations]);
-
-  /* ── Run Scan: fetch REAL data from live backend, score through local IF model ── */
-  const runScan = async () => {
-    if (!token) {
-      setError("Sign in to scan live timecard data");
-      return;
-    }
-    const forest = forestRef.current;
-    if (!forest) {
-      setError("Isolation Forest model not ready");
-      return;
-    }
-
-    setScanning(true);
-    setError(null);
-
-    try {
-      // Fetch real data from the deployed backend in parallel
-      const [recipients, payRuns, schedules] = await Promise.all([
-        api.getRecipients(token),
-        api.getPayRuns(token),
-        api.getSchedules(),
-      ]);
-
-      // Fetch time entries for each employee
-      const allEntries: Array<{ entry: RealTimeEntry; recipient: RealRecipient }> = [];
-      await Promise.all(
-        recipients.map(async (r) => {
-          try {
-            const entries = await api.getEmployeeTimeEntries(token, r.id);
-            for (const e of entries) {
-              if (e.clockOut) {
-                allEntries.push({
-                  entry: e as RealTimeEntry,
-                  recipient: r as RealRecipient,
-                });
-              }
-            }
-          } catch {
-            // Employee may have no entries; skip
-          }
-        }),
-      );
-
-      if (allEntries.length === 0) {
-        setError("No completed time entries found — employees need to clock in/out first");
-        setScanning(false);
-        return;
-      }
-
-      // Extract features from real data
-      const featureData: Array<{
-        features: AnomalyFeatures;
-        entry: RealTimeEntry;
-        recipient: RealRecipient;
-      }> = [];
-
-      for (const { entry, recipient } of allEntries) {
-        const features = extractFeatures(
-          entry,
-          recipient,
-          payRuns as RealPayRun[],
-          schedules as RealSchedule[],
-        );
-        if (features) {
-          featureData.push({ features, entry, recipient });
-        }
-      }
-
-      if (featureData.length === 0) {
-        const sampleEntry = allEntries[0]?.entry;
-        const detail = sampleEntry
-          ? `Sample entry: date="${sampleEntry.date}" clockIn="${sampleEntry.clockIn}" clockOut="${sampleEntry.clockOut}"`
-          : "No entries available";
-        setError(`Could not extract features from ${allEntries.length} time entries. ${detail}`);
-        setScanning(false);
-        return;
-      }
-
-      // Run through Isolation Forest
-      const detections = forest.detect(
-        featureData.map((d) => d.features),
-        ANOMALY_SCORE_THRESHOLD,
-      );
-
-      // Convert detections to AnomalyRecords
-      const newAnomalies: AnomalyRecord[] = detections.map((det) => {
-        const item = featureData[det.index];
-        const empId = item.recipient.id;
-        const repScore = getReputation(empId);
-        const action = repScore < LOW_REPUTATION_THRESHOLD ? "usyc_rebalance" : "ceo_manual_review";
-        const status = action === "usyc_rebalance" ? "rebalance_triggered" : "pending_review";
-        const severity = scoreSeverity(det.score);
-        const reasons = buildReasons(det.features, det.score, repScore);
-
-        // Penalise reputation: 8 for rebalance, 4 for CEO review
-        penaliseReputation(empId, action === "usyc_rebalance" ? REPUTATION_PENALTY_REBALANCE : REPUTATION_PENALTY_REVIEW);
-
-        return {
-          id: nextId(),
-          companyId: "comp-1",
-          employeeId: empId,
-          employeeName: item.recipient.name,
-          anomalyScore: +det.score.toFixed(3),
-          severity,
-          status,
-          action,
-          reputationScore: repScore,
-          reasons,
-          features: det.features,
-          detectedAt: new Date().toISOString(),
-          resolvedAt: null,
-          resolvedBy: null,
-          rebalanceTxHash:
-            action === "usyc_rebalance"
-              ? `0x${Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("")}`
-              : null,
-        };
-      });
-
-      // Recover reputation for employees whose entries were NOT flagged
-      const flaggedIndices = new Set(detections.map((d) => d.index));
-      for (let i = 0; i < featureData.length; i++) {
-        if (!flaggedIndices.has(i)) {
-          recoverReputation(featureData[i].recipient.id);
-        }
-      }
-
-      if (newAnomalies.length === 0) {
-        setError(`Scanned ${featureData.length} time entries — no anomalies detected. All clear!`);
-      } else {
-        setError(null);
-      }
-
-      setAnomalies((prev) => [...newAnomalies, ...prev]);
-      setScanCount((c) => c + 1);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Scan failed — could not reach backend");
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  /* Resolve locally by updating status in state */
-  const resolve = async (id: string, resolution: "confirmed" | "review_dismissed") => {
-    setResolving(id);
-    await new Promise((r) => setTimeout(r, 400));
-    setAnomalies((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? { ...a, status: resolution, resolvedAt: new Date().toISOString(), resolvedBy: "ceo" }
-          : a,
-      ),
-    );
-    setResolving(null);
-  };
-
-  if (loading) {
+  if (modelLoading) {
     return <div className="text-sm text-white/50">Training Isolation Forest model…</div>;
   }
 
@@ -510,31 +77,54 @@ export default function AnomaliesPage() {
       <PageHeader
         eyebrow="Anomaly Detection Agent"
         title="Timecard anomaly detection powered by Isolation Forest."
-        description="The Isolation Forest model is trained on 300 synthetic normal timecard patterns. When you Run Scan, it fetches live employee time entries from the backend, extracts features, and scores each entry — only genuine statistical outliers are surfaced. Reputation scores decay with each flagged anomaly."
+        description="The Isolation Forest model is trained on 300 synthetic normal timecard patterns. Scans run automatically every 60 seconds, fetching live employee time entries from the backend. Employees with unresolved anomalies are blocked from withdrawing."
         actions={
-          <Button variant="primary" size="md" onClick={runScan} disabled={scanning}>
-            {scanning ? (
-              <>
-                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Scanning…
-              </>
-            ) : (
-              <>
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                </svg>
-                Run Scan
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-3">
+            {/* Auto-scan toggle */}
+            <button
+              onClick={() => setAutoScanEnabled(!autoScanEnabled)}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                autoScanEnabled
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border-white/10 bg-white/[0.04] text-white/40"
+              }`}
+            >
+              <span
+                className={`inline-block h-2 w-2 rounded-full ${
+                  autoScanEnabled ? "animate-pulse bg-emerald-400" : "bg-white/20"
+                }`}
+              />
+              {autoScanEnabled ? `Auto-scan (${nextScanIn}s)` : "Auto-scan off"}
+            </button>
+
+            {/* Manual scan button */}
+            <Button variant="primary" size="md" onClick={runScan} disabled={scanning}>
+              {scanning ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Scanning…
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                  Run Scan
+                </>
+              )}
+            </Button>
+          </div>
         }
         meta={
           <>
             <Badge variant="info">Isolation Forest</Badge>
             <Badge variant="default">Stork Oracle</Badge>
+            {scanCount > 0 && (
+              <Badge variant="success">{scanCount} scan{scanCount !== 1 ? "s" : ""} completed</Badge>
+            )}
           </>
         }
       />
@@ -542,6 +132,15 @@ export default function AnomaliesPage() {
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-[13px] text-red-400">
           {error}
+        </div>
+      )}
+
+      {/* ── Blocked Employees Banner ── */}
+      {blockedEmployeeIds.size > 0 && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-[13px] text-amber-400">
+          <span className="font-semibold">⚠ Withdrawal Hold:</span>{" "}
+          {blockedEmployeeIds.size} employee{blockedEmployeeIds.size !== 1 ? "s" : ""} blocked from withdrawing due to unresolved anomalies.
+          Resolve their anomalies below to lift the hold.
         </div>
       )}
 
@@ -582,10 +181,11 @@ export default function AnomaliesPage() {
           }
         />
         <StatCard
-          label="Severity Breakdown"
-          value={`${summary?.bySeverity.critical ?? 0}C / ${summary?.bySeverity.high ?? 0}H`}
-          subtitle={`${summary?.bySeverity.medium ?? 0} med · ${summary?.bySeverity.low ?? 0} low`}
-          icon="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"
+          label="Withdrawals Blocked"
+          value={String(blockedEmployeeIds.size)}
+          subtitle="Pending resolution"
+          icon="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+          valueClassName={blockedEmployeeIds.size > 0 ? "text-red-400" : "text-emerald-400"}
         />
       </div>
 
@@ -598,7 +198,7 @@ export default function AnomaliesPage() {
                 🔍 Pending CEO Review
               </h2>
               <p className="mt-0.5 truncate text-[12px] text-white/40">
-                High-reputation employees flagged — requires manual verification
+                High-reputation employees flagged — requires manual verification. Withdrawals are held until resolved.
               </p>
             </div>
             <Badge variant="warning">{pendingReview.length} pending</Badge>
@@ -622,6 +222,7 @@ export default function AnomaliesPage() {
                       <Badge variant="info">
                         Score: {anomaly.anomalyScore.toFixed(3)}
                       </Badge>
+                      <Badge variant="error">Withdrawal held</Badge>
                     </div>
                     <p className="mt-1 text-[12px] text-white/40">
                       {formatTime(anomaly.detectedAt)} · Rep: {anomaly.reputationScore}/100
@@ -682,7 +283,7 @@ export default function AnomaliesPage() {
                 ⚡ Automatic USYC Rebalances
               </h2>
               <p className="mt-0.5 truncate text-[12px] text-white/40">
-                Low-reputation anomalies triggered protective USYC → USDC rebalance
+                Low-reputation anomalies triggered protective USYC → USDC rebalance. Withdrawals held.
               </p>
             </div>
             <Badge variant="error">{rebalanced.length} rebalanced</Badge>
@@ -768,7 +369,7 @@ export default function AnomaliesPage() {
               })}
               {reputations.length === 0 && (
                 <div className="py-4 text-center text-[13px] text-white/30">
-                  No reputation data — run a scan first
+                  No reputation data — waiting for first scan
                 </div>
               )}
             </div>
@@ -792,7 +393,7 @@ export default function AnomaliesPage() {
                 <div>
                   <p className="text-[13px] font-semibold text-white">Reputation &lt; 40 → USYC Rebalance</p>
                   <p className="mt-0.5 text-[12px] text-white/40">
-                    Low-trust employees with anomalies trigger automatic USYC → USDC rebalance as a protective measure. Funds moved to liquid USDC to cover potential payroll discrepancies.
+                    Low-trust employees with anomalies trigger automatic USYC → USDC rebalance as a protective measure. Withdrawals are held until resolved.
                   </p>
                 </div>
               </div>
@@ -806,7 +407,21 @@ export default function AnomaliesPage() {
                 <div>
                   <p className="text-[13px] font-semibold text-white">Reputation ≥ 40 → CEO Manual Review</p>
                   <p className="mt-0.5 text-[12px] text-white/40">
-                    Higher-trust employees get the benefit of the doubt. Anomalies are queued for manual CEO review before any treasury action is taken.
+                    Higher-trust employees get the benefit of the doubt. Anomalies queued for manual CEO review. Withdrawals held until the CEO confirms or dismisses.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.06]">
+                  <svg className="h-4 w-4 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.75}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[13px] font-semibold text-white">Withdrawal Blocking</p>
+                  <p className="mt-0.5 text-[12px] text-white/40">
+                    Employees with unresolved anomalies (pending review or rebalance triggered) are automatically blocked from withdrawing until the CEO resolves the anomaly.
                   </p>
                 </div>
               </div>
@@ -843,7 +458,11 @@ export default function AnomaliesPage() {
         <div className="border-t border-white/[0.05]">
           {anomalies.length === 0 && (
             <div className="px-7 py-12 text-center">
-              <p className="text-[13px] text-white/30">No anomalies detected yet. Click &ldquo;Run Scan&rdquo; to analyze timecards.</p>
+              <p className="text-[13px] text-white/30">
+                {autoScanEnabled
+                  ? "Waiting for first automated scan to complete…"
+                  : "No anomalies detected yet. Enable auto-scan or click \"Run Scan\" to analyze timecards."}
+              </p>
             </div>
           )}
 

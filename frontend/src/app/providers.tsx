@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { config } from "@/lib/wagmi";
 import { useState } from "react";
 import { PayrollProvider } from "@/components/PayrollProvider";
+import { AnomalyProvider } from "@/components/AnomalyProvider";
 import { ARC_TESTNET_CHAIN_ID } from "@/lib/contracts";
 import { AuthProvider } from "@/components/AuthProvider";
 
@@ -24,7 +25,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
           })}
         >
           <AuthProvider>
-            <PayrollProvider>{children}</PayrollProvider>
+            <PayrollProvider>
+              <AnomalyProvider>{children}</AnomalyProvider>
+            </PayrollProvider>
           </AuthProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
