@@ -5,7 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useSignMessage } from "wagmi";
+import { Badge } from "@/components/Badge";
+import { Button, buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
+import { inputStyles, metricTileStyles, subtlePanelStyles } from "@/components/ui";
 import { api, type OnboardingProfilePayload, type OnboardingRedeemResponse } from "@/lib/api";
 import { getCircleSdkDeviceId } from "@/lib/circleDevice";
 import {
@@ -334,58 +338,73 @@ function OnboardingPageContent() {
   };
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_45%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Arc Payroll</p>
-            <h1 className="mt-2 text-3xl font-semibold text-slate-900">Employee onboarding</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              Redeem your one-time access code, then choose whether payroll should use your existing wallet or create an Arc wallet through Circle.
-            </p>
-          </div>
-          <Link href="/" className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900">
-            Back to app
-          </Link>
-        </div>
+    <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <PageHeader
+          eyebrow="Onboarding"
+          title="Claim your payroll account"
+          description="Redeem your one-time access code, then choose whether payroll should use your existing wallet or create an Arc wallet through Circle."
+          meta={
+            redeemed ? (
+              <>
+                <Badge variant="info">{redeemed.employee.name}</Badge>
+                <Badge variant="default">
+                  {selectedMethod === "circle" ? "Circle wallet" : "Existing wallet"}
+                </Badge>
+              </>
+            ) : undefined
+          }
+          actions={
+            <Link href="/" className={buttonStyles({ variant: "outline" })}>
+              Back to app
+            </Link>
+          }
+        />
 
-        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="space-y-4">
+        <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <Card className="p-6 sm:p-8">
+            <div className="space-y-5">
               <div>
-                <label htmlFor="access-code" className="block text-sm font-medium text-slate-700">
+                <label htmlFor="access-code" className="block text-sm font-medium text-white/62">
                   One-time access code
                 </label>
-                <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                   <input
                     id="access-code"
                     value={code}
                     onChange={(event) => setCode(event.target.value.toUpperCase())}
                     placeholder="Enter access code"
-                    className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold uppercase tracking-widest text-slate-900 placeholder:tracking-normal placeholder:text-slate-400 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                    className={`${inputStyles} flex-1 font-semibold uppercase tracking-[0.22em] placeholder:tracking-normal`}
                   />
-                  <button
+                  <Button
                     type="button"
+                    size="lg"
                     onClick={() => void redeemCode()}
                     disabled={loading}
-                    className="rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {loading && !redeemed ? "Checking…" : "Redeem code"}
-                  </button>
+                    {loading && !redeemed ? "Checking..." : "Redeem code"}
+                  </Button>
                 </div>
               </div>
 
-              {redeemed && (
-                <div className="rounded-xl border border-teal-100 bg-teal-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Recipient</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-900">{redeemed.employee.name}</h2>
-                  <p className="mt-1 text-sm text-slate-600">
+              {redeemed ? (
+                <div className={`${subtlePanelStyles} p-5`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#fc72ff]">
+                    Recipient
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    {redeemed.employee.name}
+                  </h2>
+                  <p className="mt-2 text-sm text-white/52">
                     Code expires {new Date(redeemed.invite.expiresAt).toLocaleString()}.
                   </p>
-                  <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                    <div>
-                      <span className="text-xs uppercase tracking-widest text-slate-400">Preset pay</span>
-                        <p className="mt-1 font-medium text-slate-900">
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className={metricTileStyles}>
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/32">
+                        Preset pay
+                      </span>
+                      <p className="mt-2 text-sm font-semibold text-white">
                         {redeemed.employee.payType === "yearly"
                           ? `$${redeemed.employee.rate.toLocaleString()}/yr`
                           : redeemed.employee.payType === "daily"
@@ -393,28 +412,34 @@ function OnboardingPageContent() {
                             : `$${redeemed.employee.rate}/hr`}
                       </p>
                     </div>
-                    <div>
-                      <span className="text-xs uppercase tracking-widest text-slate-400">Preset work setup</span>
-                      <p className="mt-1 font-medium text-slate-900">
-                        {redeemed.employee.timeTrackingMode === "check_in_out" ? "Check-in / Check-out" : "Schedule-based"}
+                    <div className={metricTileStyles}>
+                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/32">
+                        Preset work setup
+                      </span>
+                      <p className="mt-2 text-sm font-semibold text-white">
+                        {redeemed.employee.timeTrackingMode === "check_in_out"
+                          ? "Check-in / Check-out"
+                          : "Schedule-based"}
                         {redeemed.employee.scheduleId ? `, ${redeemed.employee.scheduleId}` : ""}
                       </p>
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
                     <button
                       type="button"
                       onClick={() => setSelectedMethod("wallet")}
                       disabled={!redeemed.options.existingWallet}
-                      className={`rounded-xl border px-4 py-4 text-left transition-colors ${
+                      className={[
+                        "rounded-[24px] border px-5 py-5 text-left transition-all",
                         selectedMethod === "wallet"
-                          ? "border-teal-700 bg-white shadow-sm"
-                          : "border-slate-200 bg-white hover:border-slate-300"
-                      }`}
+                          ? "border-[#fc72ff]/30 bg-[#fc72ff]/[0.08] shadow-[0_18px_30px_-24px_rgba(252,114,255,0.9)]"
+                          : "border-white/[0.08] bg-[#17181c] hover:border-white/[0.14] hover:bg-[#1c1d22]",
+                        !redeemed.options.existingWallet ? "cursor-not-allowed opacity-40" : "",
+                      ].join(" ")}
                     >
-                      <p className="text-sm font-semibold text-slate-900">Use my existing wallet</p>
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="text-sm font-semibold text-white">Use my existing wallet</p>
+                      <p className="mt-2 text-sm leading-6 text-white/52">
                         Connect an EVM wallet and sign once to claim your payroll account.
                       </p>
                     </button>
@@ -422,33 +447,43 @@ function OnboardingPageContent() {
                       type="button"
                       onClick={() => setSelectedMethod("circle")}
                       disabled={!redeemed.options.circleWallet}
-                      className={`rounded-xl border px-4 py-4 text-left transition-colors ${
+                      className={[
+                        "rounded-[24px] border px-5 py-5 text-left transition-all",
                         selectedMethod === "circle"
-                          ? "border-teal-700 bg-white shadow-sm"
-                          : "border-slate-200 bg-white hover:border-slate-300"
-                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                          ? "border-[#fc72ff]/30 bg-[#fc72ff]/[0.08] shadow-[0_18px_30px_-24px_rgba(252,114,255,0.9)]"
+                          : "border-white/[0.08] bg-[#17181c] hover:border-white/[0.14] hover:bg-[#1c1d22]",
+                        !redeemed.options.circleWallet ? "cursor-not-allowed opacity-40" : "",
+                      ].join(" ")}
                     >
-                      <p className="text-sm font-semibold text-slate-900">Create Circle wallet with Google</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Sign in with Google, then provision a new Arc wallet through Circle for payroll deposits.
+                      <p className="text-sm font-semibold text-white">
+                        Create Circle wallet with Google
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-white/52">
+                        Sign in with Google, then provision a new Arc wallet through Circle for
+                        payroll deposits.
                       </p>
                     </button>
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {redeemed && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">Payout setup</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Your name, pay, schedule, tracking mode, and start date were preset by the CEO. Choose how payroll should reach you.
+              {redeemed ? (
+                <div className={`${subtlePanelStyles} p-5`}>
+                  <p className="text-sm font-semibold text-white">Payout setup</p>
+                  <p className="mt-2 text-sm leading-6 text-white/52">
+                    Your name, pay, schedule, tracking mode, and start date were preset by the
+                    CEO. Choose how payroll should reach you.
                   </p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {selectedMethod === "wallet" ? (
                       <select
                         value={profile.chainPreference}
-                        onChange={(event) => setProfile((current) => ({ ...current, chainPreference: event.target.value }))}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+                        onChange={(event) =>
+                          setProfile((current) => ({
+                            ...current,
+                            chainPreference: event.target.value,
+                          }))}
+                        className={inputStyles}
                       >
                         <option value="Arc">Arc</option>
                         <option value="Ethereum">Ethereum</option>
@@ -456,94 +491,135 @@ function OnboardingPageContent() {
                         <option value="Arbitrum">Arbitrum</option>
                       </select>
                     ) : (
-                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                      <div className={`${metricTileStyles} text-sm text-white/56`}>
                         Circle wallet payouts are locked to Arc.
                       </div>
                     )}
-                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                    <div className={`${metricTileStyles} text-sm text-white/56`}>
                       Start date: {redeemed.employee.employmentStartDate ?? "Set by CEO"}
                     </div>
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {redeemed && selectedMethod === "wallet" && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              {redeemed && selectedMethod === "wallet" ? (
+                <div className={`${subtlePanelStyles} p-5`}>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-medium text-slate-900">Connected wallet</p>
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="text-sm font-semibold text-white">Connected wallet</p>
+                      <p className="mt-2 text-sm text-white/52">
                         {address ? shortAddress(address) : "No wallet connected yet."}
                       </p>
                     </div>
-                    <ConnectButton />
+                    <ConnectButton.Custom>
+                      {({ account, mounted, openAccountModal, openConnectModal }) => {
+                        if (!mounted) {
+                          return (
+                            <div
+                              className="h-10 w-36 animate-pulse rounded-full bg-white/[0.06]"
+                              aria-hidden
+                            />
+                          );
+                        }
+
+                        return account ? (
+                          <Button variant="secondary" onClick={() => openAccountModal()}>
+                            Connected: {shortAddress(account.address)}
+                          </Button>
+                        ) : (
+                          <Button variant="secondary" onClick={() => openConnectModal()}>
+                            Connect wallet
+                          </Button>
+                        );
+                      }}
+                    </ConnectButton.Custom>
                   </div>
-                  <button
+                  <Button
                     type="button"
+                    block
+                    size="lg"
+                    variant="success"
+                    className="mt-4"
                     onClick={() => void claimWithWallet()}
                     disabled={loading || !address}
-                    className="mt-4 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {loading ? "Claiming…" : "Claim with this wallet"}
-                  </button>
+                    {loading ? "Claiming..." : "Claim with this wallet"}
+                  </Button>
                 </div>
-              )}
+              ) : null}
 
-              {redeemed && selectedMethod === "circle" && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">Circle wallet onboarding</p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    This signs you in with Google, creates a new Arc wallet through Circle, and binds it to your payroll profile.
+              {redeemed && selectedMethod === "circle" ? (
+                <div className={`${subtlePanelStyles} p-5`}>
+                  <p className="text-sm font-semibold text-white">Circle wallet onboarding</p>
+                  <p className="mt-2 text-sm leading-6 text-white/52">
+                    This signs you in with Google, creates a new Arc wallet through Circle, and
+                    binds it to your payroll profile.
                   </p>
-                  <p className="mt-2 text-xs text-slate-400">
-                    This redirects the page to Google first, then returns here for Circle wallet setup.
+                  <p className="mt-2 text-sm leading-6 text-white/40">
+                    This redirects the page to Google first, then returns here for Circle wallet
+                    setup.
                   </p>
-                  {!circleOnboardingReady && (
-                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                      Add <code>NEXT_PUBLIC_CIRCLE_APP_ID</code> and <code>NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID</code> to <code>frontend/.env.local</code> before using Circle onboarding.
-                    </div>
-                  )}
-                  <button
+                  {!circleOnboardingReady ? (
+                    <Card className="mt-4 border-amber-500/20 bg-amber-500/10 p-4">
+                      <p className="text-sm text-amber-300">
+                        Add <code>NEXT_PUBLIC_CIRCLE_APP_ID</code> and{" "}
+                        <code>NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID</code> to{" "}
+                        <code>frontend/.env.local</code> before using Circle onboarding.
+                      </p>
+                    </Card>
+                  ) : null}
+                  <Button
                     type="button"
+                    block
+                    size="lg"
+                    className="mt-4"
                     onClick={() => void claimWithCircle()}
                     disabled={loading || !circleOnboardingReady}
-                    className="mt-4 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {loading ? "Starting…" : "Continue with Circle + Google"}
-                  </button>
+                    {loading ? "Starting..." : "Continue with Circle + Google"}
+                  </Button>
                 </div>
-              )}
+              ) : null}
 
-              {status && (
-                <p className="text-sm text-slate-500">{status}</p>
-              )}
-              {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {error}
-                </div>
-              )}
+              {status ? <p className="text-sm text-white/52">{status}</p> : null}
+              {error ? (
+                <Card className="border-red-500/20 bg-red-500/10 p-4">
+                  <p className="text-sm text-red-300">{error}</p>
+                </Card>
+              ) : null}
             </div>
           </Card>
 
-          <Card className="border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">How it works</p>
-            <ol className="mt-4 space-y-4 text-sm text-slate-600">
-              <li>
-                The CEO either creates your full recipient directly, or generates a single-use access code with your preset name and pay from the Recipients page.
-              </li>
-              <li>
-                If you received a code, you redeem it here and choose your payout setup. The CEO-owned work setup stays fixed.
-              </li>
-              <li>
-                Once the claim completes, your employee session is created and you can immediately access <code>/my-earnings</code> and <code>/my-time</code>.
-              </li>
-            </ol>
+          <div className="space-y-6">
+            <Card className="p-6 sm:p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/34">
+                How it works
+              </p>
+              <ol className="mt-5 list-decimal space-y-4 pl-5 text-sm leading-6 text-white/56">
+                <li>
+                  The CEO either creates your full recipient directly, or generates a single-use
+                  access code with your preset name and pay from the Recipients page.
+                </li>
+                <li>
+                  If you received a code, you redeem it here and choose your payout setup. The
+                  CEO-owned work setup stays fixed.
+                </li>
+                <li>
+                  Once the claim completes, your employee session is created and you can
+                  immediately access <code>/my-earnings</code> and <code>/my-time</code>.
+                </li>
+              </ol>
+            </Card>
 
-            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Direct link</p>
-              <code className="mt-2 block break-all text-xs text-slate-700">{onboardingUrl}</code>
-            </div>
-          </Card>
+            <Card className="p-6 sm:p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/34">
+                Direct link
+              </p>
+              <div className={`${subtlePanelStyles} mt-4 p-4`}>
+                <code className="block break-all text-xs text-white/72">{onboardingUrl}</code>
+              </div>
+            </Card>
+          </div>
         </div>
       </div>
     </main>
@@ -554,10 +630,10 @@ export default function OnboardingPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_45%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)] px-4 py-8 sm:px-6 lg:px-8">
+        <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-5xl">
             <Card className="p-6">
-              <p className="text-sm text-slate-500">Loading onboarding…</p>
+              <p className="text-sm text-white/50">Loading onboarding...</p>
             </Card>
           </div>
         </main>

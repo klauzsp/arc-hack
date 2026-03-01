@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { formatUnits, parseUnits } from "viem";
 import { useAccount, useChainId, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { usePayroll } from "@/components/PayrollProvider";
+import { inputStyles, metricTileStyles } from "@/components/ui";
 import {
   ARC_TESTNET_CHAIN_ID,
   CEO_ADDRESS,
@@ -55,19 +57,24 @@ function StepButton({
   onClick: () => void;
   variant?: "primary" | "secondary" | "ghost";
 }) {
-  const className =
+  const mappedVariant =
     variant === "secondary"
-      ? "border border-white/[0.08] bg-white/[0.06] text-white/80 hover:bg-white/[0.10]"
+      ? "secondary"
       : variant === "ghost"
-        ? "bg-white/[0.04] text-white/30 cursor-not-allowed"
-        : "bg-[#fc72ff] text-[#0d0e0f] hover:opacity-90";
+        ? "ghost"
+        : "primary";
 
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed ${className}`}
+      className={buttonStyles({
+        variant: mappedVariant,
+        size: "lg",
+        block: true,
+        className: variant === "ghost" ? "text-white/45 hover:text-white/60" : "",
+      })}
     >
       {label}
     </button>
@@ -113,13 +120,10 @@ function StatusRow({
 
   return null;
 }
-
-const inputCls = "w-full rounded-xl border border-white/[0.08] bg-white/[0.06] py-2.5 text-sm text-white placeholder:text-white/30 focus:border-[#fc72ff]/50 focus:outline-none focus:ring-1 focus:ring-[#fc72ff]/20";
-
 export function CompanyCapitalBlock() {
   const { address } = useAccount();
   const chainId = useChainId();
-  const { treasury, refresh } = usePayroll();
+  const { refresh } = usePayroll();
   const [depositAmount, setDepositAmount] = useState("");
   const [convertAmount, setConvertAmount] = useState("");
   const [redeemAmount, setRedeemAmount] = useState("");
@@ -393,15 +397,15 @@ export function CompanyCapitalBlock() {
           </p>
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-5 py-4">
+          <div className={metricTileStyles}>
             <p className="text-xs font-medium uppercase tracking-widest text-white/40">Treasury USDC</p>
             <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-white" title={fmtAmount(treasuryUsdcBalance)}>{fmtAmount(treasuryUsdcBalance)}</p>
           </div>
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-5 py-4">
+          <div className={metricTileStyles}>
             <p className="text-xs font-medium uppercase tracking-widest text-white/40">Your wallet USDC</p>
             <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-white" title={fmtAmount(walletUsdcBalance)}>{fmtAmount(walletUsdcBalance)}</p>
           </div>
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.04] px-5 py-4">
+          <div className={metricTileStyles}>
             <p className="text-xs font-medium uppercase tracking-widest text-white/40">Your wallet USYC</p>
             <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-white" title={fmtAmount(walletUsycBalance)}>{fmtAmount(walletUsycBalance)}</p>
           </div>
@@ -429,7 +433,7 @@ export function CompanyCapitalBlock() {
                 treasuryDepositWrite.reset();
               }}
               placeholder="0.00"
-              className={`${inputCls} pl-7 pr-16`}
+              className={`${inputStyles} pl-7 pr-16`}
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USDC</span>
           </div>
@@ -479,7 +483,7 @@ export function CompanyCapitalBlock() {
               value={convertAmount}
               onChange={(event) => resetConvertFlow(event.target.value)}
               placeholder="0.00"
-              className={`${inputCls} pl-7 pr-16`}
+              className={`${inputStyles} pl-7 pr-16`}
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USDC</span>
           </div>
@@ -551,7 +555,7 @@ export function CompanyCapitalBlock() {
                 value={redeemAmount}
                 onChange={(event) => resetRedeemFlow(event.target.value)}
                 placeholder="0.00"
-                className={`${inputCls} pl-7 pr-16`}
+                className={`${inputStyles} pl-7 pr-16`}
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USYC</span>
             </div>
@@ -571,7 +575,7 @@ export function CompanyCapitalBlock() {
                 value={returnAmount}
                 onChange={(event) => resetReturnFlow(event.target.value)}
                 placeholder="0.00"
-                className={`${inputCls} pl-7 pr-16`}
+                className={`${inputStyles} pl-7 pr-16`}
               />
               <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-white/40">USDC</span>
             </div>

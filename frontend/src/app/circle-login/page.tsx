@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Button, buttonStyles } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PageHeader } from "@/components/PageHeader";
+import { subtlePanelStyles } from "@/components/ui";
 import { useAuthSession } from "@/components/AuthProvider";
 import { api } from "@/lib/api";
 import { getCircleSdkDeviceId } from "@/lib/circleDevice";
@@ -99,12 +102,15 @@ function CircleLoginPageContent() {
           return;
         }
 
-        setStatus("Signing you into payroll…");
+        setStatus("Signing you into payroll...");
         try {
-          await finalizeCircleLogin({
-            userToken: result.userToken,
-            encryptionKey: result.encryptionKey,
-          }, pending.returnTo ?? "/my-earnings");
+          await finalizeCircleLogin(
+            {
+              userToken: result.userToken,
+              encryptionKey: result.encryptionKey,
+            },
+            pending.returnTo ?? "/my-earnings",
+          );
         } catch (loginError) {
           clearCircleGoogleState();
           resumedRef.current = false;
@@ -134,7 +140,7 @@ function CircleLoginPageContent() {
     resumedRef.current = true;
     setLoading(true);
     setError(null);
-    setStatus("Resuming Google sign-in…");
+    setStatus("Resuming Google sign-in...");
 
     void attachSdk(pending).catch((resumeError) => {
       clearCircleGoogleState();
@@ -147,7 +153,9 @@ function CircleLoginPageContent() {
 
   async function startGoogleSignIn() {
     if (!circleConfigured) {
-      setError("NEXT_PUBLIC_CIRCLE_APP_ID and NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID must both be set in frontend configuration.");
+      setError(
+        "NEXT_PUBLIC_CIRCLE_APP_ID and NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID must both be set in frontend configuration.",
+      );
       return;
     }
 
@@ -155,11 +163,11 @@ function CircleLoginPageContent() {
     resetCircleGoogleFlow();
     setLoading(true);
     setError(null);
-    setStatus("Getting Circle device ID…");
+    setStatus("Getting Circle device ID...");
 
     try {
       const deviceId = await getCircleSdkDeviceId(circleAppId as string);
-      setStatus("Requesting Circle login token…");
+      setStatus("Requesting Circle login token...");
       const response = await api.createCircleGoogleDeviceToken({ deviceId });
       const pendingState = {
         mode: "auth" as const,
@@ -170,7 +178,7 @@ function CircleLoginPageContent() {
         createdAt: Date.now(),
       };
       writeCircleGoogleState(pendingState);
-      setStatus("Redirecting browser to Google…");
+      setStatus("Redirecting browser to Google...");
       redirectToCircleGoogleOauth({
         clientId: googleClientId as string,
         redirectUri: loginUrl,
@@ -185,58 +193,63 @@ function CircleLoginPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_45%),linear-gradient(180deg,_#f8fafc_0%,_#ffffff_100%)] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-teal-700">Arc Payroll</p>
-            <h1 className="mt-2 text-3xl font-semibold text-slate-900">Circle employee sign-in</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-600">
-              Employees who onboarded with a Circle wallet can sign in here with Google and go straight to payroll.
-            </p>
-          </div>
-          <Link href="/sign-in" className="text-sm font-medium text-slate-500 transition-colors hover:text-slate-900">
-            Back to sign in
-          </Link>
-        </div>
+    <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-4xl flex-col gap-6">
+        <PageHeader
+          eyebrow="Circle Wallet"
+          title="Employee Google sign-in"
+          description="Employees who onboarded with a Circle wallet can reconnect here with Google and go straight back to payroll."
+          actions={
+            <Link href="/sign-in" className={buttonStyles({ variant: "outline" })}>
+              Back to sign in
+            </Link>
+          }
+        />
 
-        <Card className="border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Google sign-in</p>
-              <p className="mt-1 text-sm text-slate-500">
-                This only works for employees whose payout wallet was created through Circle onboarding.
+        <Card className="p-6 sm:p-8">
+          <div className="space-y-5">
+            <div className={`${subtlePanelStyles} p-5`}>
+              <p className="text-sm font-semibold text-white">Google sign-in</p>
+              <p className="mt-2 text-sm leading-6 text-white/52">
+                This only works for employees whose payout wallet was created through Circle
+                onboarding.
               </p>
-              <p className="mt-2 text-xs text-slate-400">
-                If you are already signed into payroll, this refreshes your Circle wallet session for transfers and other wallet actions.
+              <p className="mt-2 text-sm leading-6 text-white/40">
+                If you are already signed into payroll, this refreshes your Circle wallet session
+                for transfers and other wallet actions.
               </p>
-              <p className="mt-2 text-xs text-slate-400">
-                This flow redirects the page to Google. It does not open a WalletConnect or RainbowKit modal.
+              <p className="mt-2 text-sm leading-6 text-white/40">
+                The flow redirects the page to Google. It does not open a WalletConnect or
+                RainbowKit modal.
               </p>
             </div>
 
-            {!circleConfigured && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                Add <code>NEXT_PUBLIC_CIRCLE_APP_ID</code> and <code>NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID</code> to <code>frontend/.env.local</code> and restart the Next.js server.
-              </div>
-            )}
+            {!circleConfigured ? (
+              <Card className="border-amber-500/20 bg-amber-500/10 p-4">
+                <p className="text-sm text-amber-300">
+                  Add <code>NEXT_PUBLIC_CIRCLE_APP_ID</code> and{" "}
+                  <code>NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID</code> to{" "}
+                  <code>frontend/.env.local</code> and restart the Next.js server.
+                </p>
+              </Card>
+            ) : null}
 
-            <button
-              type="button"
+            <Button
+              block
+              size="lg"
               onClick={() => void startGoogleSignIn()}
               disabled={loading || !circleConfigured}
-              className="inline-flex w-full items-center justify-center gap-3 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               <span className="text-base">G</span>
-              {loading ? "Working…" : "Continue with Google"}
-            </button>
+              {loading ? "Working..." : "Continue with Google"}
+            </Button>
 
-            {status && <p className="text-sm text-slate-500">{status}</p>}
-            {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </div>
-            )}
+            {status ? <p className="text-sm text-white/52">{status}</p> : null}
+            {error ? (
+              <Card className="border-red-500/20 bg-red-500/10 p-4">
+                <p className="text-sm text-red-300">{error}</p>
+              </Card>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -246,7 +259,17 @@ function CircleLoginPageContent() {
 
 export default function CircleLoginPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-white" />}>
+    <Suspense
+      fallback={
+        <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-4xl">
+            <Card className="p-6">
+              <p className="text-sm text-white/50">Loading Circle sign-in...</p>
+            </Card>
+          </div>
+        </main>
+      }
+    >
       <CircleLoginPageContent />
     </Suspense>
   );
