@@ -413,6 +413,7 @@ export default function MyTimePage() {
           <Card>
             <div className="border-b border-white/[0.06] px-5 py-4">
               <h3 className="text-sm font-semibold text-white">Time Entries</h3>
+              <p className="mt-0.5 text-xs text-white/50">All your clock-in/out entries (used for pay and anomaly checks).</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -426,19 +427,29 @@ export default function MyTimePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04]">
-                  {currentPeriodEntries.slice().reverse().map((entry) => (
-                    <tr key={entry.id} className="transition-colors hover:bg-white/[0.03]">
-                      <td className="whitespace-nowrap px-5 py-3 text-sm font-medium text-white">{entry.date}</td>
-                      <td className="whitespace-nowrap px-5 py-3 text-sm text-white/60">{entry.clockIn}</td>
-                      <td className="whitespace-nowrap px-5 py-3 text-sm text-white/60">{entry.clockOut || "--"}</td>
-                      <td className="whitespace-nowrap px-5 py-3 text-right text-sm font-medium text-white">
-                        {entry.clockOut ? hoursWorked(entry.clockIn, entry.clockOut) : "--"}
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-3 text-right">
-                        {entry.clockOut ? <Badge variant="success">Approved</Badge> : <Badge variant="warning">Active</Badge>}
+                  {recipientEntries.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-sm text-white/50">
+                        No time entries yet. Clock in above to log your first entry.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    [...recipientEntries]
+                      .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn))
+                      .map((entry) => (
+                        <tr key={entry.id} className="transition-colors hover:bg-white/[0.03]">
+                          <td className="whitespace-nowrap px-5 py-3 text-sm font-medium text-white">{entry.date}</td>
+                          <td className="whitespace-nowrap px-5 py-3 text-sm text-white/60">{entry.clockIn}</td>
+                          <td className="whitespace-nowrap px-5 py-3 text-sm text-white/60">{entry.clockOut || "--"}</td>
+                          <td className="whitespace-nowrap px-5 py-3 text-right text-sm font-medium text-white">
+                            {entry.clockOut ? hoursWorked(entry.clockIn, entry.clockOut) : "--"}
+                          </td>
+                          <td className="whitespace-nowrap px-5 py-3 text-right">
+                            {entry.clockOut ? <Badge variant="success">Approved</Badge> : <Badge variant="warning">Active</Badge>}
+                          </td>
+                        </tr>
+                      ))
+                  )}
                 </tbody>
               </table>
             </div>
