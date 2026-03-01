@@ -33,13 +33,31 @@ function formatDate(value: string) {
 }
 
 export default function PayRunsPage() {
-  const { payRuns, createPayRun, loading, error } = usePayroll();
+  const {
+    payRuns,
+    today,
+    currentPeriodStart,
+    currentPeriodEnd,
+    createPayRun,
+    createPayRunForPeriod,
+    approvePayRun,
+    executePayRun,
+    finalizePayRun,
+    loading,
+    error,
+  } = usePayroll();
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [executeEarlyError, setExecuteEarlyError] = useState<string | null>(null);
+  const [isExecuteEarly, setIsExecuteEarly] = useState(false);
   const sortedPayRuns = [...payRuns];
   const executedRuns = payRuns.filter((payRun) => payRun.status === "executed");
   const totalPaid = executedRuns.reduce((total, payRun) => total + payRun.totalAmount, 0);
+
+  const currentPeriodRun = payRuns.find(
+    (r) => r.periodStart === currentPeriodStart && r.periodEnd === currentPeriodEnd,
+  );
 
   const handleCreatePayRun = async () => {
     setIsCreating(true);
@@ -51,6 +69,39 @@ export default function PayRunsPage() {
       setCreateError(creationError instanceof Error ? creationError.message : "Failed to create treasury pay run.");
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleCreateRunForCurrentPeriod = async () => {
+    setIsCreating(true);
+    setCreateError(null);
+    try {
+      const payRun = await createPayRunForPeriod(currentPeriodStart, currentPeriodEnd);
+      setLastCreatedId(payRun.id);
+    } catch (creationError) {
+      setCreateError(creationError instanceof Error ? creationError.message : "Failed to create pay run for current period.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleExecuteEarly = async () => {
+    if (!currentPeriodRun) return;
+    setIsExecuteEarly(true);
+    setExecuteEarlyError(null);
+    try {
+      if (currentPeriodRun.status === "draft") {
+        await approvePayRun(currentPeriodRun.id);
+        await executePayRun(currentPeriodRun.id);
+      } else if (currentPeriodRun.status === "approved" || currentPeriodRun.status === "pending") {
+        await executePayRun(currentPeriodRun.id);
+      } else if (currentPeriodRun.status === "processing") {
+        await finalizePayRun(currentPeriodRun.id);
+      }
+    } catch (e) {
+      setExecuteEarlyError(e instanceof Error ? e.message : "Failed to execute early.");
+    } finally {
+      setIsExecuteEarly(false);
     }
   };
 
@@ -95,6 +146,81 @@ export default function PayRunsPage() {
           </div>
         </Card>
       )}
+
+      <Card className="border-white/[0.08] bg-white/[0.03] p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-white">Current pay period</h3>
+              {today > currentPeriodEnd && (
+                <span className="rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[11px] font-medium text-amber-300">
+                  Pay period passed
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-lg font-medium tabular-nums text-white">
+              {formatDate(currentPeriodStart)} – {formatDate(currentPeriodEnd)}
+            </p>
+            <p className="mt-1 text-xs text-white/50">
+              Pay runs for this period include earnings to date (time entries and schedules from the period start through today).
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {executeEarlyError && (
+              <p className="w-full text-xs text-red-400">{executeEarlyError}</p>
+            )}
+            {!currentPeriodRun && (
+              <Button
+                variant="outline"
+                disabled={isCreating}
+                onClick={() => void handleCreateRunForCurrentPeriod()}
+              >
+                {isCreating ? "Creating…" : "Create run for current period"}
+              </Button>
+            )}
+            {currentPeriodRun?.status === "draft" && (
+              <Button
+                variant="success"
+                disabled={isExecuteEarly}
+                onClick={() => void handleExecuteEarly()}
+              >
+                {isExecuteEarly ? "Approving & executing…" : "Approve & execute early"}
+              </Button>
+            )}
+            {(currentPeriodRun?.status === "approved" || currentPeriodRun?.status === "pending") && (
+              <Button
+                variant="success"
+                disabled={isExecuteEarly}
+                onClick={() => void handleExecuteEarly()}
+              >
+                {isExecuteEarly ? "Executing…" : "Execute early"}
+              </Button>
+            )}
+            {currentPeriodRun?.status === "processing" && (
+              <Button
+                variant="outline"
+                disabled={isExecuteEarly}
+                onClick={() => void handleExecuteEarly()}
+              >
+                {isExecuteEarly ? "Finalizing…" : "Finalize"}
+              </Button>
+            )}
+            {currentPeriodRun?.status === "executed" && (
+              <span className="rounded-full bg-emerald-500/20 px-3 py-1.5 text-xs font-medium text-emerald-300">
+                Completed
+              </span>
+            )}
+            {currentPeriodRun && currentPeriodRun.status !== "executed" && (
+              <Link
+                href={`/pay-runs/${currentPeriodRun.id}`}
+                className={buttonStyles({ variant: "ghost", size: "sm", className: "text-white/60 hover:text-white" })}
+              >
+                View run
+              </Link>
+            )}
+          </div>
+        </div>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-4 lg:grid-cols-4">
         <Card className="p-4">
@@ -150,11 +276,21 @@ export default function PayRunsPage() {
                         Executed {new Date(payRun.executedAt).toLocaleDateString("en-US")}
                       </p>
                     )}
+                    {today > payRun.periodEnd && payRun.status !== "executed" && (
+                      <p className="mt-0.5 text-xs font-medium text-amber-400">Pay period passed</p>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-5 py-4">
-                    <Badge variant={statusVariant(payRun.status)}>
-                      {payRun.status.charAt(0).toUpperCase() + payRun.status.slice(1)}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant={statusVariant(payRun.status)}>
+                        {payRun.status.charAt(0).toUpperCase() + payRun.status.slice(1)}
+                      </Badge>
+                      {today > payRun.periodEnd && payRun.status !== "executed" && (
+                        <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                          Period passed
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-5 py-4 text-right text-sm font-semibold text-white">
                     {formatCurrency(payRun.totalAmount)}

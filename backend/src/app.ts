@@ -668,6 +668,12 @@ export function buildApp(config: AppConfig) {
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     return payrollService.updatePayRun(params.id, payRunSchema.partial().parse(request.body ?? {}));
   });
+  app.delete("/pay-runs/:id", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    payrollService.deletePayRun(params.id);
+    return { ok: true };
+  });
   app.post("/pay-runs/:id/approve", async (request) => {
     await getSessionOrThrow(request, authService, "admin");
     const params = z.object({ id: z.string().min(1) }).parse(request.params);

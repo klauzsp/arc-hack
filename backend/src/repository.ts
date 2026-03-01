@@ -1100,6 +1100,13 @@ export class PayrollRepository {
     return next;
   }
 
+  deletePayRun(id: string) {
+    this.transaction(() => {
+      this.db.prepare("DELETE FROM pay_run_items WHERE pay_run_id = ?").run(id);
+      this.db.prepare("DELETE FROM pay_runs WHERE id = ?").run(id);
+    });
+  }
+
   replacePayRunItems(payRunId: string, items: PayRunItemRecord[]) {
     this.transaction(() => {
       this.db.prepare("DELETE FROM pay_run_items WHERE pay_run_id = ?").run(payRunId);

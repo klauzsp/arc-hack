@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { usePayroll } from "@/components/PayrollProvider";
 import { Badge } from "@/components/Badge";
@@ -35,7 +35,8 @@ function formatDate(value: string) {
 
 export default function PayRunDetailPage() {
   const params = useParams();
-  const { payRuns, recipients, approvePayRun, executePayRun, finalizePayRun } = usePayroll();
+  const router = useRouter();
+  const { payRuns, recipients, approvePayRun, deletePayRun, executePayRun, finalizePayRun } = usePayroll();
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -120,24 +121,45 @@ export default function PayRunDetailPage() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {payRun.status === "draft" && (
-              <Button
-                disabled={isSubmitting}
-                onClick={() => {
-                  setIsSubmitting(true);
-                  setActionError(null);
-                  setActionMessage(null);
-                  void approvePayRun(payRun.id)
-                    .then(() => setActionMessage("Pay run approved and created on-chain."))
-                    .catch((error: unknown) => {
-                      setActionError(error instanceof Error ? error.message : "Failed to approve pay run.");
-                    })
-                    .finally(() => setIsSubmitting(false));
-                }}
-              >
-                Approve Pay Run
-              </Button>
+              <>
+                <Button
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setIsSubmitting(true);
+                    setActionError(null);
+                    setActionMessage(null);
+                    void approvePayRun(payRun.id)
+                      .then(() => setActionMessage("Pay run approved and created on-chain."))
+                      .catch((error: unknown) => {
+                        setActionError(error instanceof Error ? error.message : "Failed to approve pay run.");
+                      })
+                      .finally(() => setIsSubmitting(false));
+                  }}
+                >
+                  Approve Pay Run
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={isSubmitting}
+                  className="border-red-500/40 text-red-300 hover:bg-red-500/10 hover:text-red-200"
+                  onClick={() => {
+                    if (!confirm("Delete this pay run? This cannot be undone.")) return;
+                    setIsSubmitting(true);
+                    setActionError(null);
+                    setActionMessage(null);
+                    void deletePayRun(payRun.id)
+                      .then(() => router.push("/pay-runs"))
+                      .catch((error: unknown) => {
+                        setActionError(error instanceof Error ? error.message : "Failed to delete pay run.");
+                        setIsSubmitting(false);
+                      });
+                  }}
+                >
+                  Delete Pay Run
+                </Button>
+              </>
             )}
             {payRun.status === "approved" && (
               <Button

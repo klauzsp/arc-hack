@@ -1010,6 +1010,14 @@ export class PayrollService {
     return toPayRunResponse(payRun, this.repository.listPayRunItems(id));
   }
 
+  deletePayRun(id: string) {
+    const payRun = requireRecord(this.repository.getPayRun(id), "Pay run not found.");
+    if (payRun.status !== "draft") {
+      throw new Error("Only draft pay runs can be deleted. Approved or executed pay runs cannot be removed.");
+    }
+    this.repository.deletePayRun(id);
+  }
+
   async createPayRun(input: { periodStart: string; periodEnd: string; employeeIds?: string[] }) {
     const previews = await this.buildPayRunItems(input.periodStart, input.periodEnd, input.employeeIds);
     if (previews.length === 0) {
