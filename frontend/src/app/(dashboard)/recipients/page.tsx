@@ -232,7 +232,7 @@ export default function RecipientsPage() {
     const payload: Partial<RecipientFormState> = {};
     if (bulkEditForm.scheduleId != null && bulkEditForm.scheduleId !== "") payload.scheduleId = bulkEditForm.scheduleId;
     if (bulkEditForm.chainPreference != null && bulkEditForm.chainPreference !== "") payload.chainPreference = bulkEditForm.chainPreference;
-    if (bulkEditForm.timeTrackingMode != null && bulkEditForm.timeTrackingMode !== "") payload.timeTrackingMode = bulkEditForm.timeTrackingMode as TimeTrackingMode;
+    if (bulkEditForm.timeTrackingMode != null) payload.timeTrackingMode = bulkEditForm.timeTrackingMode;
     if (Object.keys(payload).length === 0) {
       setDeleteError("Select at least one field to update.");
       return;
