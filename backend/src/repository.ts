@@ -790,7 +790,13 @@ export class PayrollRepository {
   updateSchedule(id: string, patch: Partial<ScheduleRecord>) {
     const current = this.getSchedule(id);
     if (!current) return null;
-    const next = { ...current, ...patch, id };
+    const next: ScheduleRecord = {
+      ...current,
+      ...patch,
+      id,
+      maxTimeOffDaysPerYear:
+        Object.prototype.hasOwnProperty.call(patch, "maxTimeOffDaysPerYear") ? patch.maxTimeOffDaysPerYear ?? null : current.maxTimeOffDaysPerYear ?? null,
+    };
     this.db
       .prepare(
         "UPDATE schedules SET company_id = ?, name = ?, timezone = ?, start_time = ?, hours_per_day = ?, working_days_json = ?, max_time_off_days_per_year = ? WHERE id = ?",
@@ -802,10 +808,11 @@ export class PayrollRepository {
         next.startTime,
         next.hoursPerDay,
         JSON.stringify(next.workingDays),
-        next.maxTimeOffDaysPerYear ?? null,
+        next.maxTimeOffDaysPerYear,
         id,
       );
-    return next;
+    const updated = this.getSchedule(id);
+    return updated ?? next;
   }
 
   countEmployeesByScheduleId(scheduleId: string): number {
