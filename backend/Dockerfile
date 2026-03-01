@@ -2,11 +2,20 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml* ./
-RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
-RUN pnpm install --frozen-lockfile
+# Copy workspace manifests first for cache
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-COPY . .
+# Copy ONLY backend manifest so pnpm can resolve workspace deps
+COPY backend/package.json backend/package.json
+
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+RUN pnpm install --frozen-lockfile --filter backend...
+
+# Now copy backend source
+COPY backend backend
+
+# Build and start backend only
+WORKDIR /app/backend
 RUN pnpm run build
 
 ENV NODE_ENV=production
