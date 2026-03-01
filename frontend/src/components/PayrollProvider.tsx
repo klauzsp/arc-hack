@@ -351,7 +351,6 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
   const deletePayRun = async (payRunId: string) => {
     if (!token) throw new Error("Admin session required.");
     await api.deletePayRun(token, payRunId);
-    void refresh();
   };
 
   const approvePayRun = async (payRunId: string) => {

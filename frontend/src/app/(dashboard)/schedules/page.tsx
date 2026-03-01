@@ -93,16 +93,26 @@ export default function SchedulesPage() {
     }));
   };
 
+  const schedulePayload = () => ({
+    name: form.name,
+    timezone: form.timezone,
+    startTime: form.startTime,
+    hoursPerDay: form.hoursPerDay,
+    workingDays: form.workingDays,
+    maxTimeOffDaysPerYear: form.maxTimeOffDaysPerYear ?? null,
+  });
+
   const handleSave = async () => {
     setIsSaving(true);
     setMessage(null);
     setActionError(null);
     try {
+      const payload = schedulePayload();
       if (editingId) {
-        await updateSchedule(editingId, form);
+        await updateSchedule(editingId, payload);
         setMessage("Schedule updated.");
       } else {
-        await createSchedule(form);
+        await createSchedule(payload);
         setMessage("Schedule created.");
       }
       resetForm();

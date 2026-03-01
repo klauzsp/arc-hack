@@ -36,7 +36,7 @@ function formatDate(value: string) {
 export default function PayRunDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { payRuns, recipients, approvePayRun, deletePayRun, executePayRun, finalizePayRun } = usePayroll();
+  const { payRuns, recipients, approvePayRun, deletePayRun, executePayRun, finalizePayRun, refresh } = usePayroll();
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -150,7 +150,10 @@ export default function PayRunDetailPage() {
                     setActionError(null);
                     setActionMessage(null);
                     void deletePayRun(payRun.id)
-                      .then(() => router.push("/pay-runs"))
+                      .then(() => {
+                        router.push("/pay-runs");
+                        void refresh();
+                      })
                       .catch((error: unknown) => {
                         setActionError(error instanceof Error ? error.message : "Failed to delete pay run.");
                         setIsSubmitting(false);
