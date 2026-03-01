@@ -1,0 +1,17 @@
+# Frontend Docker build (context = repo root, Dockerfile = frontend/Dockerfile)
+frontend/node_modules
+frontend/.next
+frontend/.git
+frontend/.env
+frontend/.env.local
+frontend/.env*.local
+frontend/*.log
+frontend/.DS_Store
+
+# Keep context small
+backend
+contracts
+node_modules
+.git
+*.md
+*.sqlite

@@ -1,9 +1,10 @@
-# Build stage
+# Build stage – expects build context = repo root (Railway: Dockerfile path = frontend/Dockerfile, root = .)
 FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json* yarn.lock* ./
+# Copy only frontend package files so we use frontend's "next build" script, not root's pnpm script
+COPY frontend/package.json frontend/package-lock.json* frontend/yarn.lock* ./
 RUN npm ci 2>/dev/null || npm install
 
 # Build-time env (NEXT_PUBLIC_* are inlined at build)
@@ -35,7 +36,8 @@ ENV NEXT_PUBLIC_ARC_CEO_ADDRESS=$NEXT_PUBLIC_ARC_CEO_ADDRESS
 ENV NEXT_PUBLIC_CIRCLE_APP_ID=$NEXT_PUBLIC_CIRCLE_APP_ID
 ENV NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID
 
-COPY . .
+# Copy rest of frontend (see root .dockerignore so we skip node_modules, .next)
+COPY frontend/ .
 RUN npm run build
 
 # Production stage
