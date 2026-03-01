@@ -138,6 +138,8 @@ export interface TimeOffRequestRecord {
   date: string;
   note: string | null;
   status: TimeOffStatus;
+  /** Links requests submitted together; CEO can approve/decline group in one go */
+  requestGroupId: string | null;
   createdAt: string;
   updatedAt: string;
   reviewedAt: string | null;

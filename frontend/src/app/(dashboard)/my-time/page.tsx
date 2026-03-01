@@ -81,7 +81,8 @@ export default function MyTimePage() {
   const [timeOffMessage, setTimeOffMessage] = useState<string | null>(null);
   const [timeOffError, setTimeOffError] = useState<string | null>(null);
   const [isSavingTimeOff, setIsSavingTimeOff] = useState(false);
-  const [selectedTimeOffDates, setSelectedTimeOffDates] = useState<Set<string>>(new Set());
+  const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
+  const [selectedToRemove, setSelectedToRemove] = useState<Set<string>>(new Set());
 
   const connectedRecipient = getRecipientByWallet(address);
   const sessionRecipient = employee ? getRecipientById(employee.id) ?? employee : null;
@@ -187,22 +188,38 @@ export default function MyTimePage() {
   };
 
   const handleRequestSelectedDays = useCallback(async () => {
-    const dates = Array.from(selectedTimeOffDates).sort();
-    if (dates.length === 0) return;
+    const toAdd = Array.from(selectedToAdd).sort();
+    const toRemove = Array.from(selectedToRemove);
+    if (toAdd.length === 0 && toRemove.length === 0) return;
     setTimeOffMessage(null);
     setTimeOffError(null);
     setIsSavingTimeOff(true);
     try {
-      await Promise.all(dates.map((date) => createMyTimeOff({ date, note: timeOffNote || null })));
-      setTimeOffMessage(`${dates.length} day-off request(s) submitted for approval.`);
-      setSelectedTimeOffDates(new Set());
+      const requestGroupId = toAdd.length > 0 ? `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}` : undefined;
+      await Promise.all(
+        toAdd.map((date) => createMyTimeOff({ date, note: timeOffNote || null, requestGroupId: requestGroupId ?? null })),
+      );
+      const requestByDate = new Map(myTimeOffRequests.map((r) => [r.date, r]));
+      const toCancel = toRemove.filter((date) => requestByDate.has(date)).map((date) => requestByDate.get(date)!);
+      await Promise.all(toCancel.map((req) => updateMyTimeOff(req.id, { status: "cancelled" })));
+      const added = toAdd.length;
+      const cancelled = toCancel.length;
+      if (added > 0 && cancelled > 0) {
+        setTimeOffMessage(`${added} request(s) submitted, ${cancelled} request(s) cancelled.`);
+      } else if (added > 0) {
+        setTimeOffMessage(`${added} day-off request(s) submitted for approval.`);
+      } else if (cancelled > 0) {
+        setTimeOffMessage(`${cancelled} request(s) cancelled.`);
+      }
+      setSelectedToAdd(new Set());
+      setSelectedToRemove(new Set());
       setTimeOffNote("");
     } catch (err) {
-      setTimeOffError(err instanceof Error ? err.message : "Failed to submit day-off requests.");
+      setTimeOffError(err instanceof Error ? err.message : "Failed to submit or cancel day-off requests.");
     } finally {
       setIsSavingTimeOff(false);
     }
-  }, [selectedTimeOffDates, timeOffNote, createMyTimeOff]);
+  }, [selectedToAdd, selectedToRemove, timeOffNote, createMyTimeOff, updateMyTimeOff, myTimeOffRequests]);
 
   const handleCancelTimeOff = async (id: string) => {
     setTimeOffMessage(null);
@@ -528,8 +545,10 @@ export default function MyTimePage() {
                 requests={myTimeOffRequests.map((r) => ({ date: r.date, status: r.status }))}
                 today={today}
                 remainingDays={myTimeOffAllowance?.remainingDays ?? 0}
-                selectedDates={selectedTimeOffDates}
-                onSelectedDatesChange={setSelectedTimeOffDates}
+                selectedToAdd={selectedToAdd}
+                selectedToRemove={selectedToRemove}
+                onSelectedToAddChange={setSelectedToAdd}
+                onSelectedToRemoveChange={setSelectedToRemove}
                 disabled={isSavingTimeOff}
               />
             </div>
@@ -537,15 +556,26 @@ export default function MyTimePage() {
               <input
                 value={timeOffNote}
                 onChange={(event) => setTimeOffNote(event.target.value)}
-                placeholder="Optional note for requests"
+                placeholder="Optional note for new requests"
                 className={inputStyles}
                 style={{ minWidth: "200px" }}
               />
               <Button
-                disabled={isSavingTimeOff || selectedTimeOffDates.size === 0}
+                disabled={
+                  isSavingTimeOff || (selectedToAdd.size === 0 && selectedToRemove.size === 0)
+                }
                 onClick={() => void handleRequestSelectedDays()}
               >
-                {isSavingTimeOff ? "Submitting…" : `Request ${selectedTimeOffDates.size} day${selectedTimeOffDates.size !== 1 ? "s" : ""} off`}
+                {isSavingTimeOff
+                  ? "Submitting…"
+                  : (() => {
+                      const a = selectedToAdd.size;
+                      const r = selectedToRemove.size;
+                      if (a > 0 && r > 0) return `Request ${a} day(s), cancel ${r}`;
+                      if (a > 0) return `Request ${a} day${a !== 1 ? "s" : ""} off`;
+                      if (r > 0) return `Cancel ${r} request${r !== 1 ? "s" : ""}`;
+                      return "Apply";
+                    })()}
               </Button>
             </div>
             {editingTimeOffId && (

@@ -104,6 +104,11 @@ const timeOffPolicySchema = z.object({
 const employeeTimeOffSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   note: z.string().max(500).nullable().optional(),
+  requestGroupId: z.string().min(1).nullable().optional(),
+});
+
+const adminTimeOffGroupReviewSchema = z.object({
+  status: z.enum(["approved", "rejected"]),
 });
 
 const employeeTimeOffUpdateSchema = z.object({
@@ -738,6 +743,11 @@ export function buildApp(config: AppConfig) {
     await getSessionOrThrow(request, authService, "admin");
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     return payrollService.reviewTimeOffRequest(params.id, adminTimeOffReviewSchema.parse(request.body ?? {}));
+  });
+  app.patch("/time-off/requests/group/:groupId", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ groupId: z.string().min(1) }).parse(request.params);
+    return payrollService.reviewTimeOffRequestGroup(params.groupId, adminTimeOffGroupReviewSchema.parse(request.body ?? {}));
   });
 
   // ── Anomaly Detection Agent ─────────────────────────────────────────────

@@ -3,12 +3,10 @@
 /**
  * Interactive time-off calendar for employees.
  *
- * Plan:
- * - Grid: one or two months with week rows. Each cell = one day.
- * - Day states: working (selectable), company holiday (red), pending request (orange), approved (green), non-working (grey), past (disabled).
- * - Selection: click toggles; mousedown + drag adds range (only working, non-holiday, not-already-requested, >= today).
- * - Month nav: arrows left/right to change visible month(s). Micro-adjust = prev/next month.
- * - Submit: parent gets selected dates (calendar only ever adds valid days to selection). No "you aren't working that day" — we filter at selection time.
+ * - Add selection (green): start on a non-requested working day; marks days to request.
+ * - Remove selection (red): start on a day that already has a request; marks days to cancel.
+ *   Days in toRemove that have no request are still shown as selected (red) but ignored on submit.
+ * - Transparent light green = to add; transparent light red = to remove.
  */
 
 import { useCallback, useMemo, useState } from "react";
@@ -51,8 +49,10 @@ export type TimeOffCalendarProps = {
   requests: { date: string; status: string }[];
   today: string;
   remainingDays: number;
-  selectedDates: Set<string>;
-  onSelectedDatesChange: (next: Set<string>) => void;
+  selectedToAdd: Set<string>;
+  selectedToRemove: Set<string>;
+  onSelectedToAddChange: (next: Set<string>) => void;
+  onSelectedToRemoveChange: (next: Set<string>) => void;
   disabled?: boolean;
 };
 
@@ -62,13 +62,15 @@ export function TimeOffCalendar({
   requests,
   today,
   remainingDays,
-  selectedDates,
-  onSelectedDatesChange,
+  selectedToAdd,
+  selectedToRemove,
+  onSelectedToAddChange,
+  onSelectedToRemoveChange,
   disabled = false,
 }: TimeOffCalendarProps) {
   const [viewYear, setViewYear] = useState(() => new Date(`${today}T12:00:00Z`).getUTCFullYear());
   const [viewMonth, setViewMonth] = useState(() => new Date(`${today}T12:00:00Z`).getUTCMonth());
-  const [dragStart, setDragStart] = useState<string | null>(null);
+  const [dragState, setDragState] = useState<{ mode: "add" | "remove"; start: string } | null>(null);
 
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
   const requestByDate = useMemo(() => {
@@ -85,7 +87,7 @@ export function TimeOffCalendar({
     [workingDays],
   );
 
-  const isSelectable = useCallback(
+  const isSelectableToAdd = useCallback(
     (dateKey: string) => {
       if (dateKey < today) return false;
       if (holidaySet.has(dateKey)) return false;
@@ -97,68 +99,115 @@ export function TimeOffCalendar({
     [today, holidaySet, isWorkingDay, requestByDate],
   );
 
+  const hasRequest = useCallback(
+    (dateKey: string) => {
+      const status = requestByDate.get(dateKey);
+      return status === "pending" || status === "approved";
+    },
+    [requestByDate],
+  );
+
   const weeks = useMemo(() => getCalendarWeeks(viewYear, viewMonth), [viewYear, viewMonth]);
 
-  const toggleDate = useCallback(
+  const toggleAdd = useCallback(
     (dateKey: string) => {
-      if (disabled) return;
-      if (!isSelectable(dateKey)) return;
-      const next = new Set(selectedDates);
+      if (disabled || !isSelectableToAdd(dateKey)) return;
+      const next = new Set(selectedToAdd);
+      const removeNext = new Set(selectedToRemove);
+      removeNext.delete(dateKey);
       if (next.has(dateKey)) next.delete(dateKey);
       else {
         if (next.size >= remainingDays) return;
         next.add(dateKey);
       }
-      onSelectedDatesChange(next);
+      onSelectedToAddChange(next);
+      onSelectedToRemoveChange(removeNext);
     },
-    [disabled, isSelectable, selectedDates, remainingDays, onSelectedDatesChange],
+    [disabled, isSelectableToAdd, selectedToAdd, selectedToRemove, remainingDays, onSelectedToAddChange, onSelectedToRemoveChange],
   );
 
-  const addDateToSelection = useCallback(
+  const toggleRemove = useCallback(
     (dateKey: string) => {
-      if (disabled || !isSelectable(dateKey)) return;
-      const next = new Set(selectedDates);
-      if (next.has(dateKey)) return;
-      if (next.size >= remainingDays) return;
-      next.add(dateKey);
-      onSelectedDatesChange(next);
+      if (disabled) return;
+      if (!hasRequest(dateKey)) return;
+      const next = new Set(selectedToRemove);
+      const addNext = new Set(selectedToAdd);
+      addNext.delete(dateKey);
+      if (next.has(dateKey)) next.delete(dateKey);
+      else next.add(dateKey);
+      onSelectedToRemoveChange(next);
+      onSelectedToAddChange(addNext);
     },
-    [disabled, isSelectable, selectedDates, remainingDays, onSelectedDatesChange],
+    [disabled, hasRequest, selectedToRemove, selectedToAdd, onSelectedToRemoveChange, onSelectedToAddChange],
   );
 
   const handleMouseDown = useCallback(
     (dateKey: string) => {
       if (disabled) return;
-      if (isSelectable(dateKey)) {
-        setDragStart(dateKey);
-        toggleDate(dateKey);
+      if (isSelectableToAdd(dateKey)) {
+        setDragState({ mode: "add", start: dateKey });
+        toggleAdd(dateKey);
+      } else if (hasRequest(dateKey)) {
+        setDragState({ mode: "remove", start: dateKey });
+        toggleRemove(dateKey);
       }
     },
-    [disabled, isSelectable, toggleDate],
+    [disabled, isSelectableToAdd, hasRequest, toggleAdd, toggleRemove],
   );
 
   const handleMouseEnter = useCallback(
     (dateKey: string) => {
-      if (disabled || dragStart == null) return;
-      if (!isSelectable(dateKey)) return;
-      const start = new Date(`${dragStart}T12:00:00Z`).getTime();
-      const end = new Date(`${dateKey}T12:00:00Z`).getTime();
-      const [from, to] = start <= end ? [dragStart, dateKey] : [dateKey, dragStart];
-      const next = new Set(selectedDates);
-      const fromDate = new Date(`${from}T12:00:00Z`);
-      const toDate = new Date(`${to}T12:00:00Z`);
-      for (let d = new Date(fromDate); d <= toDate; d.setUTCDate(d.getUTCDate() + 1)) {
-        const key = toDateKey(d);
-        if (isSelectable(key) && next.size < remainingDays) next.add(key);
+      if (disabled || dragState == null) return;
+      if (dragState.mode === "add") {
+        if (!isSelectableToAdd(dateKey)) return;
+        const start = new Date(`${dragState.start}T12:00:00Z`).getTime();
+        const end = new Date(`${dateKey}T12:00:00Z`).getTime();
+        const [from, to] = start <= end ? [dragState.start, dateKey] : [dateKey, dragState.start];
+        const next = new Set(selectedToAdd);
+        const fromDate = new Date(`${from}T12:00:00Z`);
+        const toDate = new Date(`${to}T12:00:00Z`);
+        for (let d = new Date(fromDate); d <= toDate; d.setUTCDate(d.getUTCDate() + 1)) {
+          const key = toDateKey(d);
+          if (isSelectableToAdd(key) && next.size < remainingDays) next.add(key);
+        }
+        onSelectedToAddChange(next);
+      } else {
+        const start = new Date(`${dragState.start}T12:00:00Z`).getTime();
+        const end = new Date(`${dateKey}T12:00:00Z`).getTime();
+        const [from, to] = start <= end ? [dragState.start, dateKey] : [dateKey, dragState.start];
+        const next = new Set(selectedToRemove);
+        const fromDate = new Date(`${from}T12:00:00Z`);
+        const toDate = new Date(`${to}T12:00:00Z`);
+        for (let d = new Date(fromDate); d <= toDate; d.setUTCDate(d.getUTCDate() + 1)) {
+          next.add(toDateKey(d));
+        }
+        onSelectedToRemoveChange(next);
       }
-      onSelectedDatesChange(next);
     },
-    [disabled, dragStart, isSelectable, selectedDates, remainingDays, onSelectedDatesChange],
+    [
+      disabled,
+      dragState,
+      isSelectableToAdd,
+      selectedToAdd,
+      selectedToRemove,
+      remainingDays,
+      onSelectedToAddChange,
+      onSelectedToRemoveChange,
+    ],
   );
 
   const handleMouseUp = useCallback(() => {
-    setDragStart(null);
+    setDragState(null);
   }, []);
+
+  const handleClick = useCallback(
+    (dateKey: string) => {
+      if (disabled) return;
+      if (isSelectableToAdd(dateKey)) toggleAdd(dateKey);
+      else if (hasRequest(dateKey)) toggleRemove(dateKey);
+    },
+    [disabled, isSelectableToAdd, hasRequest, toggleAdd, toggleRemove],
+  );
 
   const handlePrevMonth = () => {
     if (viewMonth === 0) {
@@ -228,8 +277,10 @@ export function TimeOffCalendar({
           const status = requestByDate.get(dateKey);
           const isPending = status === "pending";
           const isApproved = status === "approved";
-          const isSelected = selectedDates.has(dateKey);
-          const selectable = isSelectable(dateKey);
+          const inToAdd = selectedToAdd.has(dateKey);
+          const inToRemove = selectedToRemove.has(dateKey);
+          const selectableAdd = isSelectableToAdd(dateKey);
+          const canRemove = hasRequest(dateKey);
 
           let bg = "bg-white/[0.06]";
           let textColor = "text-white/50";
@@ -248,26 +299,30 @@ export function TimeOffCalendar({
           } else {
             textColor = "text-white/90";
           }
-          if (isSelected) {
-            bg = "bg-[#fc72ff]/40";
-            textColor = "text-white";
-          }
+
+          const clickable = (selectableAdd || canRemove) && !disabled;
 
           return (
             <button
               key={dateKey}
               type="button"
-              className={`aspect-square min-w-[36px] rounded-lg text-xs font-medium transition-colors ${bg} ${textColor} ${
-                selectable && !disabled ? "cursor-pointer hover:opacity-90" : "cursor-default"
-              } ${!selectable ? "opacity-80" : ""}`}
-              onClick={() => toggleDate(dateKey)}
+              className={`relative aspect-square min-w-[36px] rounded-lg text-xs font-medium transition-colors ${bg} ${textColor} ${
+                clickable ? "cursor-pointer hover:opacity-90" : "cursor-default"
+              } ${!clickable && !isHoliday ? "opacity-80" : ""}`}
+              onClick={() => handleClick(dateKey)}
               onMouseDown={() => handleMouseDown(dateKey)}
               onMouseEnter={() => handleMouseEnter(dateKey)}
-              disabled={disabled || !selectable}
-              aria-label={`${dateKey}${isHoliday ? ", company holiday" : ""}${isPending ? ", pending request" : ""}${isApproved ? ", approved" : ""}${isSelected ? ", selected" : ""}`}
-              aria-selected={isSelected}
+              disabled={disabled}
+              aria-label={`${dateKey}${isHoliday ? ", company holiday" : ""}${isPending ? ", pending request" : ""}${isApproved ? ", approved" : ""}${inToAdd ? ", add" : ""}${inToRemove ? ", remove" : ""}`}
+              aria-selected={inToAdd || inToRemove}
             >
-              {cell.getUTCDate()}
+              {inToAdd && (
+                <span className="absolute inset-0 rounded-lg bg-emerald-400/25 ring-1 ring-inset ring-emerald-400/40" aria-hidden />
+              )}
+              {inToRemove && (
+                <span className="absolute inset-0 rounded-lg bg-red-400/25 ring-1 ring-inset ring-red-400/40" aria-hidden />
+              )}
+              <span className="relative z-10">{cell.getUTCDate()}</span>
             </button>
           );
         })}
@@ -284,7 +339,10 @@ export function TimeOffCalendar({
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/50" /> Approved
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#fc72ff]/50" /> Selected
+          <span className="rounded bg-emerald-400/30 px-1.5 py-0.5">Green</span> Add request
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="rounded bg-red-400/30 px-1.5 py-0.5">Red</span> Cancel request
         </span>
       </div>
     </div>

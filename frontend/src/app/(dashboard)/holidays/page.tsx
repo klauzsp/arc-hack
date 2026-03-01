@@ -8,7 +8,7 @@ import { Card } from "@/components/Card";
 import { PageHeader } from "@/components/PageHeader";
 import { usePayroll } from "@/components/PayrollProvider";
 import { inputStyles } from "@/components/ui";
-import type { HolidayRecord } from "@/lib/types";
+import type { HolidayRecord, TimeOffRequest } from "@/lib/types";
 
 type HolidayForm = {
   date: string;
@@ -35,6 +35,7 @@ export default function HolidaysPage() {
     createHoliday,
     updateHoliday,
     reviewTimeOffRequest,
+    reviewTimeOffRequestGroup,
     loading,
     error,
   } = usePayroll();
@@ -48,6 +49,20 @@ export default function HolidaysPage() {
     () => adminTimeOffRequests.filter((request) => request.status === "pending"),
     [adminTimeOffRequests],
   );
+
+  const pendingByGroup = useMemo(() => {
+    const map = new Map<string | null, TimeOffRequest[]>();
+    for (const r of pendingRequests) {
+      const key = r.requestGroupId ?? null;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.date.localeCompare(b.date));
+    }
+    return map;
+  }, [pendingRequests]);
+
   const recentRequests = useMemo(
     () => [...adminTimeOffRequests].sort((left, right) => right.date.localeCompare(left.date)).slice(0, 12),
     [adminTimeOffRequests],
@@ -95,6 +110,17 @@ export default function HolidaysPage() {
       setMessage(`Request ${status}.`);
     } catch (reviewError) {
       setActionError(reviewError instanceof Error ? reviewError.message : "Failed to update request.");
+    }
+  };
+
+  const handleReviewGroup = async (groupId: string, status: "approved" | "rejected") => {
+    setMessage(null);
+    setActionError(null);
+    try {
+      await reviewTimeOffRequestGroup(groupId, { status });
+      setMessage(`Group ${status}.`);
+    } catch (reviewError) {
+      setActionError(reviewError instanceof Error ? reviewError.message : "Failed to update group.");
     }
   };
 
@@ -180,42 +206,83 @@ export default function HolidaysPage() {
         <Card className="p-5">
           <h3 className="text-sm font-semibold text-white">Pending Approvals</h3>
           <p className="mt-1 text-xs text-white/50">{pendingRequests.length} employee requests awaiting CEO review.</p>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-4">
             {pendingRequests.length === 0 ? (
               <p className="text-sm text-white/50">No pending time-off requests.</p>
             ) : (
-              pendingRequests.map((request) => (
-                <div key={request.id} className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-white">{request.employeeName ?? request.employeeId}</p>
-                      <p className="mt-1 text-xs text-white/40">{request.date}</p>
-                      {request.note && <p className="mt-2 text-sm text-white/60">{request.note}</p>}
+              Array.from(pendingByGroup.entries()).map(([groupId, groupRequests]) => {
+                const isGroup = groupId != null && groupRequests.length > 1;
+                const employeeName = groupRequests[0]?.employeeName ?? groupRequests[0]?.employeeId ?? "";
+                const dateRange =
+                  groupRequests.length > 1
+                    ? `${groupRequests[0]!.date} – ${groupRequests[groupRequests.length - 1]!.date}`
+                    : groupRequests[0]!.date;
+                return (
+                  <div
+                    key={groupId ?? `single-${groupRequests[0]!.id}`}
+                    className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{employeeName}</p>
+                        <p className="mt-1 text-xs text-white/40">
+                          {isGroup ? `${groupRequests.length} days: ${dateRange}` : dateRange}
+                        </p>
+                        {groupRequests[0]?.note && (
+                          <p className="mt-2 text-sm text-white/60">{groupRequests[0].note}</p>
+                        )}
+                      </div>
+                      {isGroup && groupId != null && (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="success"
+                            size="sm"
+                            onClick={() => void handleReviewGroup(groupId, "approved")}
+                          >
+                            Approve all
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-red-500/40 text-red-300 hover:bg-red-500/10"
+                            onClick={() => void handleReviewGroup(groupId, "rejected")}
+                          >
+                            Decline all
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    <Badge variant="warning">Pending</Badge>
+                    <div className="mt-4 space-y-2 border-t border-white/[0.06] pt-3">
+                      {groupRequests.map((request) => (
+                        <div
+                          key={request.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/[0.02] px-3 py-2"
+                        >
+                          <span className="text-xs text-white/70">{request.date}</span>
+                          <div className="flex gap-1.5">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-emerald-400 hover:bg-emerald-500/20"
+                              onClick={() => void handleReview(request.id, "approved")}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-400 hover:bg-red-500/20"
+                              onClick={() => void handleReview(request.id, "rejected")}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-4 flex gap-2">
-                    <Button
-                      variant="success"
-                      size="sm"
-                      onClick={() => {
-                        void handleReview(request.id, "approved");
-                      }}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        void handleReview(request.id, "rejected");
-                      }}
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </Card>

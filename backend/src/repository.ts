@@ -221,6 +221,7 @@ function mapTimeOffRequest(row: Record<string, unknown>): TimeOffRequestRecord {
     date: String(row.date),
     note: row.note == null ? null : String(row.note),
     status: row.status as TimeOffRequestRecord["status"],
+    requestGroupId: row.request_group_id == null ? null : String(row.request_group_id),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     reviewedAt: row.reviewed_at == null ? null : String(row.reviewed_at),
@@ -422,6 +423,7 @@ export class PayrollRepository {
     this.ensureColumn("companies", "max_time_off_days_per_year", "INTEGER NOT NULL DEFAULT 20");
     this.ensureColumn("schedules", "start_time", "TEXT NOT NULL DEFAULT '09:00'");
     this.ensureColumn("schedules", "max_time_off_days_per_year", "INTEGER");
+    this.ensureColumn("time_off_requests", "request_group_id", "TEXT");
     this.ensureColumn("employees", "onboarding_status", "TEXT NOT NULL DEFAULT 'claimed'");
     this.ensureColumn("employees", "onboarding_method", "TEXT");
     this.ensureColumn("employees", "claimed_at", "TEXT");
@@ -685,8 +687,8 @@ export class PayrollRepository {
 
       const insertTimeOffRequest = this.db.prepare(
         `INSERT INTO time_off_requests (
-          id, company_id, employee_id, date, note, status, created_at, updated_at, reviewed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, company_id, employee_id, date, note, status, request_group_id, created_at, updated_at, reviewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const request of payload.timeOffRequests ?? []) {
         insertTimeOffRequest.run(
@@ -696,6 +698,7 @@ export class PayrollRepository {
           request.date,
           request.note,
           request.status,
+          request.requestGroupId ?? null,
           request.createdAt,
           request.updatedAt,
           request.reviewedAt,
@@ -1384,8 +1387,8 @@ export class PayrollRepository {
     this.db
       .prepare(
         `INSERT INTO time_off_requests (
-          id, company_id, employee_id, date, note, status, created_at, updated_at, reviewed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, company_id, employee_id, date, note, status, request_group_id, created_at, updated_at, reviewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         request.id,
@@ -1394,6 +1397,7 @@ export class PayrollRepository {
         request.date,
         request.note,
         request.status,
+        request.requestGroupId ?? null,
         request.createdAt,
         request.updatedAt,
         request.reviewedAt,
@@ -1408,7 +1412,7 @@ export class PayrollRepository {
     this.db
       .prepare(
         `UPDATE time_off_requests
-         SET company_id = ?, employee_id = ?, date = ?, note = ?, status = ?, created_at = ?, updated_at = ?, reviewed_at = ?
+         SET company_id = ?, employee_id = ?, date = ?, note = ?, status = ?, request_group_id = ?, created_at = ?, updated_at = ?, reviewed_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -1417,11 +1421,19 @@ export class PayrollRepository {
         next.date,
         next.note,
         next.status,
+        next.requestGroupId ?? null,
         next.createdAt,
         next.updatedAt,
         next.reviewedAt,
         id,
       );
     return next;
+  }
+
+  listTimeOffRequestsByGroupId(groupId: string): TimeOffRequestRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM time_off_requests WHERE request_group_id = ? ORDER BY date ASC")
+      .all(groupId) as Record<string, unknown>[];
+    return rows.map(mapTimeOffRequest);
   }
 }

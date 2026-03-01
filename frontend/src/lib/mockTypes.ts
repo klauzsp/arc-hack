@@ -90,6 +90,8 @@ export interface TimeOffRequest {
   date: string;
   note?: string | null;
   status: "pending" | "approved" | "rejected" | "cancelled";
+  /** Links requests submitted together; CEO can approve/decline group in one go */
+  requestGroupId?: string | null;
   createdAt: string;
   updatedAt: string;
   reviewedAt?: string | null;

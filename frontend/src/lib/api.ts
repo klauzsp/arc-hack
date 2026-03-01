@@ -547,8 +547,14 @@ export const api = {
       token,
       body: payload,
     }),
+  reviewTimeOffRequestGroup: (token: string, groupId: string, payload: { status: "approved" | "rejected" }) =>
+    request<TimeOffRequest[]>(`/time-off/requests/group/${groupId}`, {
+      method: "PATCH",
+      token,
+      body: payload,
+    }),
   getMyTimeOff: (token: string) => request<TimeOffSummaryResponse>("/me/time-off", { token }),
-  createMyTimeOff: (token: string, payload: { date: string; note?: string | null }) =>
+  createMyTimeOff: (token: string, payload: { date: string; note?: string | null; requestGroupId?: string | null }) =>
     request<TimeOffRequest>("/me/time-off", {
       method: "POST",
       token,

@@ -73,9 +73,10 @@ type PayrollContextValue = {
   clockIn: (recipientId: string, input?: { date?: string; clockIn?: string }) => Promise<void>;
   clockOut: (recipientId: string, input?: { clockOut?: string }) => Promise<void>;
   withdrawNow: (input?: { amount?: number }) => Promise<WithdrawResponse>;
-  createMyTimeOff: (input: { date: string; note?: string | null }) => Promise<TimeOffRequest>;
+  createMyTimeOff: (input: { date: string; note?: string | null; requestGroupId?: string | null }) => Promise<TimeOffRequest>;
   updateMyTimeOff: (id: string, input: Partial<{ date: string; note: string | null; status: "cancelled" }>) => Promise<TimeOffRequest>;
   reviewTimeOffRequest: (id: string, input: { status: "approved" | "rejected" | "cancelled" }) => Promise<TimeOffRequest>;
+  reviewTimeOffRequestGroup: (groupId: string, input: { status: "approved" | "rejected" }) => Promise<TimeOffRequest[]>;
   updateTimeOffPolicy: (input: { maxDaysPerYear: number }) => Promise<TimeOffPolicy>;
   createPolicy: (input: { name: string; type: "payday" | "treasury_threshold" | "manual"; status?: "active" | "paused"; config?: Record<string, unknown> }) => Promise<PolicySummary>;
   updatePolicy: (policyId: string, input: Partial<{ name: string; type: "payday" | "treasury_threshold" | "manual"; status: "active" | "paused"; config: Record<string, unknown> }>) => Promise<PolicySummary>;
@@ -430,6 +431,16 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
     return request;
   };
 
+  const reviewTimeOffRequestGroup = async (
+    groupId: string,
+    input: { status: "approved" | "rejected" },
+  ) => {
+    if (!token) throw new Error("Admin session required.");
+    const requests = await api.reviewTimeOffRequestGroup(token, groupId, input);
+    await refresh();
+    return requests;
+  };
+
   const updateTimeOffPolicy = async (input: { maxDaysPerYear: number }) => {
     if (!token) throw new Error("Admin session required.");
     const policy = await api.updateTimeOffPolicy(token, input);
@@ -518,6 +529,7 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
         createMyTimeOff,
         updateMyTimeOff,
         reviewTimeOffRequest,
+        reviewTimeOffRequestGroup,
         updateTimeOffPolicy,
         createPolicy,
         updatePolicy,

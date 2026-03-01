@@ -156,6 +156,7 @@ function toTimeOffRequestResponse(request: TimeOffRequestRecord, employee?: Empl
     date: request.date,
     note: request.note,
     status: request.status,
+    requestGroupId: request.requestGroupId,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt,
     reviewedAt: request.reviewedAt,
@@ -704,7 +705,7 @@ export class PayrollService {
     };
   }
 
-  createMyTimeOff(address: string, input: { date: string; note?: string | null }) {
+  createMyTimeOff(address: string, input: { date: string; note?: string | null; requestGroupId?: string | null }) {
     const employee = requireRecord(this.repository.getEmployeeByWallet(address.toLowerCase()), "Employee not found.");
     this.validateTimeOffDate(employee, input.date);
     this.assertTimeOffWithinLimit(employee, input.date);
@@ -717,6 +718,7 @@ export class PayrollService {
       date: input.date,
       note: input.note?.trim() || null,
       status: "pending",
+      requestGroupId: input.requestGroupId ?? null,
       createdAt: now,
       updatedAt: now,
       reviewedAt: null,
@@ -780,6 +782,36 @@ export class PayrollService {
       "Time-off request not found.",
     );
     return toTimeOffRequestResponse(updated, employee);
+  }
+
+  reviewTimeOffRequestGroup(groupId: string, input: { status: "approved" | "rejected" }) {
+    const groupRequests = this.repository.listTimeOffRequestsByGroupId(groupId);
+    if (groupRequests.length === 0) {
+      throw new Error("No time-off requests found for this group.");
+    }
+    const employees = new Map(
+      groupRequests.map((r) => [r.employeeId, requireRecord(this.repository.getEmployee(r.employeeId), "Employee not found.")]),
+    );
+    const now = nowIso();
+    for (const request of groupRequests) {
+      if (request.status !== "pending") continue;
+      const employee = employees.get(request.employeeId)!;
+      if (input.status === "approved") {
+        this.validateTimeOffDate(employee, request.date, request.id);
+        this.assertTimeOffWithinLimit(employee, request.date, request.id);
+      }
+      this.repository.updateTimeOffRequest(request.id, {
+        status: input.status,
+        updatedAt: now,
+        reviewedAt: now,
+      });
+    }
+    return groupRequests
+      .filter((r) => r.status === "pending")
+      .map((r) => toTimeOffRequestResponse(
+        requireRecord(this.repository.getTimeOffRequest(r.id), "Time-off request not found."),
+        employees.get(r.employeeId) ?? null,
+      ));
   }
 
   getMyTimeEntries(address: string, start?: string, end?: string) {
