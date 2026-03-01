@@ -57,10 +57,13 @@ COPY --from=builder /app/public ./frontend/public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./frontend/.next/static
 
+# Railway often runs "pnpm start" when it detects a pnpm repo; install pnpm and a start script that runs the server
+RUN corepack enable && corepack prepare pnpm@10.15.0 --activate
+RUN echo '{"name":"frontend","private":true,"scripts":{"start":"node server.js"}}' > ./frontend/package.json
+
 USER nextjs
 
 WORKDIR /app/frontend
 EXPOSE 3000
 
-# ENTRYPOINT so Railway cannot override with pnpm start / npm start
-ENTRYPOINT ["node", "server.js"]
+CMD ["node", "server.js"]
