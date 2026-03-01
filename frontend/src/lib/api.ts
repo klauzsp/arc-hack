@@ -230,6 +230,68 @@ export interface AdminTimeOffResponse {
   requests: TimeOffRequest[];
 }
 
+// ── Anomaly Detection Types ──────────────────────────────────────────────────
+
+export type AnomalySeverity = "low" | "medium" | "high" | "critical";
+export type AnomalyStatus = "detected" | "pending_review" | "rebalance_triggered" | "review_dismissed" | "confirmed";
+export type AnomalyAction = "usyc_rebalance" | "ceo_manual_review";
+
+export interface AnomalyFeatures {
+  clockInHour: number;
+  clockOutHour: number;
+  durationHours: number;
+  daysSincePayDay: number;
+  daysUntilPayDay: number;
+  occupationType: number;
+  rateCents: number;
+  dayOfWeek: number;
+  isWeekend: boolean;
+  scheduleDeviation: number;
+}
+
+export interface AnomalyRecord {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  companyId: string;
+  detectedAt: string;
+  severity: AnomalySeverity;
+  status: AnomalyStatus;
+  action: AnomalyAction;
+  anomalyScore: number;
+  reputationScore: number;
+  features: AnomalyFeatures;
+  reasons: string[];
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  rebalanceTxHash: string | null;
+}
+
+export interface AnomalyDetectionResult {
+  anomalies: AnomalyRecord[];
+  scannedEntries: number;
+  totalAnomalies: number;
+  rebalanceTriggered: number;
+  reviewTriggered: number;
+}
+
+export interface AnomalySummary {
+  totalAnomalies: number;
+  pendingReview: number;
+  rebalancesTriggered: number;
+  avgReputationScore: number;
+  bySeverity: Record<AnomalySeverity, number>;
+  recentAnomalies: AnomalyRecord[];
+}
+
+export interface ReputationRecord {
+  employeeId: string;
+  score: number;
+  lastUpdated: string;
+  anomalyCount: number;
+  confirmedAnomalyCount: number;
+}
+
 export type RecipientPayload = {
   walletAddress?: string | null;
   name: string;
@@ -497,4 +559,30 @@ export const api = {
       token,
       body: payload,
     }),
+
+  // ── Anomaly Detection ──────────────────────────────────────────────────────
+
+  scanAnomalies: (token: string) =>
+    request<AnomalyDetectionResult>("/anomalies/scan", {
+      method: "POST",
+      token,
+      body: {},
+    }),
+  getAnomalies: (token: string, filter?: { employeeId?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (filter?.employeeId) params.set("employeeId", filter.employeeId);
+    if (filter?.status) params.set("status", filter.status);
+    const qs = params.toString();
+    return request<AnomalyRecord[]>(`/anomalies${qs ? `?${qs}` : ""}`, { token });
+  },
+  getAnomalySummary: (token: string) =>
+    request<AnomalySummary>("/anomalies/summary", { token }),
+  resolveAnomaly: (token: string, id: string, resolution: "confirmed" | "review_dismissed") =>
+    request<AnomalyRecord>(`/anomalies/${id}/resolve`, {
+      method: "PATCH",
+      token,
+      body: { resolution },
+    }),
+  getReputations: (token: string) =>
+    request<ReputationRecord[]>("/anomalies/reputations", { token }),
 };

@@ -17,6 +17,8 @@ import { ChainService } from "./services/chainService";
 import { CircleWalletService } from "./services/circleWalletService";
 import { JobService } from "./services/jobService";
 import { PayrollService } from "./services/payrollService";
+import { AnomalyDetectionAgent } from "./services/anomalyDetectionAgent";
+import { StorkOracleService } from "./services/storkOracleService";
 import { nowIso } from "./lib/dates";
 
 class HttpError extends Error {
@@ -228,6 +230,8 @@ export function buildApp(config: AppConfig) {
   const circleWalletService = new CircleWalletService(config);
   const authService = new AuthService(repository, config, circleWalletService);
   const jobService = new JobService(payrollService);
+  const storkOracleService = new StorkOracleService();
+  const anomalyAgent = new AnomalyDetectionAgent(storkOracleService);
 
   const app = Fastify({ logger: false });
   void app.register(cors, {
@@ -729,6 +733,66 @@ export function buildApp(config: AppConfig) {
     return payrollService.reviewTimeOffRequest(params.id, adminTimeOffReviewSchema.parse(request.body ?? {}));
   });
 
+  // ── Anomaly Detection Agent ─────────────────────────────────────────────
+
+  app.post("/anomalies/scan", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const employees = repository.listEmployees();
+    const timeEntries = employees.flatMap((e) => repository.listTimeEntries(e.id));
+    const payRuns = repository.listPayRuns();
+    const schedules = repository.listSchedules();
+    const result = anomalyAgent.scan(employees, timeEntries, payRuns, schedules, config.companyId, config.seedDate);
+
+    // For anomalies that trigger USYC rebalance, execute the rebalance
+    for (const anomaly of result.anomalies) {
+      if (anomaly.action === "usyc_rebalance") {
+        try {
+          const rebalanceResult = await payrollService.manualRebalance({
+            direction: "usyc_to_usdc",
+            amount: 100, // Rebalance $100 USYC → USDC as protective measure
+          });
+          anomalyAgent.setRebalanceTxHash(anomaly.id, rebalanceResult.txHash);
+          anomaly.rebalanceTxHash = rebalanceResult.txHash;
+        } catch {
+          // Rebalance may fail if insufficient USYC; anomaly still recorded
+        }
+      }
+    }
+
+    return result;
+  });
+
+  app.get("/anomalies", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const query = z.object({
+      employeeId: z.string().optional(),
+      status: z.string().optional(),
+    }).parse(request.query ?? {});
+    return anomalyAgent.getAnomalies(query);
+  });
+
+  app.get("/anomalies/summary", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    return anomalyAgent.getSummary();
+  });
+
+  app.patch("/anomalies/:id/resolve", async (request) => {
+    const session = await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = z.object({
+      resolution: z.enum(["confirmed", "review_dismissed"]),
+    }).parse(request.body ?? {});
+    const result = anomalyAgent.resolveAnomaly(params.id, body.resolution, session.address);
+    if (!result) throw new HttpError(404, "Anomaly not found.");
+    return result;
+  });
+
+  app.get("/anomalies/reputations", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const employees = repository.listEmployees();
+    return storkOracleService.getReputations(employees.map((e) => e.id));
+  });
+
   app.addHook("onClose", async () => {
     repository.close();
   });
@@ -742,6 +806,8 @@ export function buildApp(config: AppConfig) {
       jobService,
       chainService,
       circleWalletService,
+      anomalyAgent,
+      storkOracleService,
     },
   };
 }
