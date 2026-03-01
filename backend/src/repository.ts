@@ -978,6 +978,13 @@ export class PayrollRepository {
     return next;
   }
 
+  deleteHoliday(id: string): boolean {
+    const current = this.db.prepare("SELECT id FROM holidays WHERE id = ?").get(id);
+    if (!current) return false;
+    this.db.prepare("DELETE FROM holidays WHERE id = ?").run(id);
+    return true;
+  }
+
   listTimeEntries(employeeId: string, start?: string, end?: string) {
     let sql = "SELECT * FROM time_entries WHERE employee_id = ?";
     const params: Array<string> = [employeeId];

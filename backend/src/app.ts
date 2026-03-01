@@ -599,6 +599,12 @@ export function buildApp(config: AppConfig) {
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     return payrollService.updateHoliday(params.id, holidaySchema.partial().parse(request.body ?? {}));
   });
+  app.delete("/holidays/:id", async (request) => {
+    await getSessionOrThrow(request, authService, "admin");
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    payrollService.deleteHoliday(params.id);
+    return { ok: true };
+  });
 
   app.get("/me/time-entries", async (request) => {
     const session = await getSessionOrThrow(request, authService, "employee");

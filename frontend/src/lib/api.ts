@@ -422,6 +422,8 @@ export const api = {
       token,
       body: payload,
     }),
+  deleteHoliday: (token: string, id: string) =>
+    request<{ ok: true }>(`/holidays/${id}`, { method: "DELETE", token }),
   getMyEarnings: (token: string) => request<EarningsResponse>("/me/earnings", { token }),
   withdrawNow: (token: string, payload?: { amount?: number }) =>
     request<WithdrawResponse>("/me/withdraw", {

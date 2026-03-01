@@ -661,6 +661,11 @@ export class PayrollService {
     return toHolidayResponse(holiday);
   }
 
+  deleteHoliday(id: string) {
+    const deleted = this.repository.deleteHoliday(id);
+    if (!deleted) throw new Error("Holiday not found.");
+  }
+
   getProfile(address: string) {
     const employee = this.repository.getEmployeeByWallet(address.toLowerCase());
     const role = address.toLowerCase() === this.config.adminWallet ? "admin" : employee ? "employee" : null;

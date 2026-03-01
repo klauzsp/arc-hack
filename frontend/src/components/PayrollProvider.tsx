@@ -65,6 +65,7 @@ type PayrollContextValue = {
   deleteSchedule: (scheduleId: string) => Promise<void>;
   createHoliday: (values: { date: string; name: string }) => Promise<HolidayRecord>;
   updateHoliday: (holidayId: string, values: Partial<{ date: string; name: string }>) => Promise<HolidayRecord>;
+  deleteHoliday: (holidayId: string) => Promise<void>;
   createPayRun: () => Promise<PayRun>;
   createPayRunForPeriod: (periodStart: string, periodEnd: string) => Promise<PayRun>;
   deletePayRun: (payRunId: string) => Promise<void>;
@@ -331,6 +332,12 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
     return updated;
   };
 
+  const deleteHoliday = async (holidayId: string) => {
+    if (!token) throw new Error("Admin session required.");
+    await api.deleteHoliday(token, holidayId);
+    await refresh();
+  };
+
   const createPayRun = async () => {
     if (!token) throw new Error("Admin session required.");
     const latest = payRuns[0];
@@ -525,6 +532,7 @@ export function PayrollProvider({ children }: { children: React.ReactNode }) {
         deleteSchedule,
         createHoliday,
         updateHoliday,
+        deleteHoliday,
         createPayRun,
         createPayRunForPeriod,
         deletePayRun,
