@@ -36,10 +36,10 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-transparent">
       <Sidebar role={role} />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4">
         <TopBar title={title} />
         <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-          <div className="mx-auto max-w-[1260px] px-2 pb-10 pt-6 sm:px-4 sm:pb-14 sm:pt-8 lg:px-6 lg:pb-16 lg:pt-10">
+          <div className="mx-auto max-w-[1200px] px-1 pb-12 sm:px-2">
             {children}
           </div>
         </main>

@@ -14,7 +14,7 @@ export function StatCard({
   valueClassName?: string;
 }) {
   return (
-    <div className="flex min-w-0 flex-col justify-between rounded-[20px] border border-white/[0.06] bg-[linear-gradient(180deg,rgba(19,20,22,0.98)_0%,rgba(15,16,18,0.98)_100%)] p-5">
+    <div className="flex min-w-0 flex-col justify-between rounded-[20px] border border-white/[0.06] bg-[linear-gradient(180deg,rgba(19,20,22,0.98)_0%,rgba(15,16,18,0.98)_100%)] p-6 sm:p-7">
       <div className="mb-3 flex items-start justify-between gap-2">
         <p className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">{label}</p>
         {icon && (
