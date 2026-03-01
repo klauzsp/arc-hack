@@ -38,6 +38,7 @@ ENV NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_CIRCLE_GOOGLE_CLIENT_ID
 
 # Copy rest of frontend (see root .dockerignore so we skip node_modules, .next)
 COPY frontend/ .
+RUN mkdir -p public
 RUN npm run build
 
 # Production stage
