@@ -49,6 +49,7 @@ function mapTreasuryBalance(row) {
     };
 }
 function mapSchedule(row) {
+    const maxTimeOff = row.max_time_off_days_per_year;
     return {
         id: String(row.id),
         companyId: String(row.company_id),
@@ -57,6 +58,7 @@ function mapSchedule(row) {
         startTime: String(row.start_time),
         hoursPerDay: toNumber(row.hours_per_day),
         workingDays: parseJson(row.working_days_json, []),
+        maxTimeOffDaysPerYear: maxTimeOff == null ? null : toNumber(maxTimeOff),
     };
 }
 function mapEmployee(row) {
@@ -191,6 +193,7 @@ function mapTimeOffRequest(row) {
         date: String(row.date),
         note: row.note == null ? null : String(row.note),
         status: row.status,
+        requestGroupId: row.request_group_id == null ? null : String(row.request_group_id),
         createdAt: String(row.created_at),
         updatedAt: String(row.updated_at),
         reviewedAt: row.reviewed_at == null ? null : String(row.reviewed_at),
@@ -387,6 +390,8 @@ class PayrollRepository {
         this.ensureColumn("employees", "employment_start_date", "TEXT");
         this.ensureColumn("companies", "max_time_off_days_per_year", "INTEGER NOT NULL DEFAULT 20");
         this.ensureColumn("schedules", "start_time", "TEXT NOT NULL DEFAULT '09:00'");
+        this.ensureColumn("schedules", "max_time_off_days_per_year", "INTEGER");
+        this.ensureColumn("time_off_requests", "request_group_id", "TEXT");
         this.ensureColumn("employees", "onboarding_status", "TEXT NOT NULL DEFAULT 'claimed'");
         this.ensureColumn("employees", "onboarding_method", "TEXT");
         this.ensureColumn("employees", "claimed_at", "TEXT");
@@ -464,9 +469,9 @@ class PayrollRepository {
             for (const balance of payload.treasuryBalances) {
                 insertTreasury.run(balance.companyId, balance.chainId, balance.chainName, balance.usdcCents, Number(balance.isHub));
             }
-            const insertSchedule = this.db.prepare("INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            const insertSchedule = this.db.prepare("INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json, max_time_off_days_per_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
             for (const schedule of payload.schedules) {
-                insertSchedule.run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.startTime, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
+                insertSchedule.run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.startTime, schedule.hoursPerDay, JSON.stringify(schedule.workingDays), schedule.maxTimeOffDaysPerYear ?? null);
             }
             const insertEmployee = this.db.prepare(`INSERT INTO employees (
           id, company_id, wallet_address, name, role, pay_type, rate_cents, chain_preference,
@@ -509,10 +514,10 @@ class PayrollRepository {
                 insertWithdrawal.run(withdrawal.id, withdrawal.employeeId, withdrawal.walletAddress, withdrawal.amountCents, withdrawal.txHash, withdrawal.periodStart, withdrawal.periodEnd, withdrawal.createdAt, withdrawal.status);
             }
             const insertTimeOffRequest = this.db.prepare(`INSERT INTO time_off_requests (
-          id, company_id, employee_id, date, note, status, created_at, updated_at, reviewed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          id, company_id, employee_id, date, note, status, request_group_id, created_at, updated_at, reviewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const request of payload.timeOffRequests ?? []) {
-                insertTimeOffRequest.run(request.id, request.companyId, request.employeeId, request.date, request.note, request.status, request.createdAt, request.updatedAt, request.reviewedAt);
+                insertTimeOffRequest.run(request.id, request.companyId, request.employeeId, request.date, request.note, request.status, request.requestGroupId ?? null, request.createdAt, request.updatedAt, request.reviewedAt);
             }
         });
         this.removeDemoPayRuns();
@@ -555,8 +560,8 @@ class PayrollRepository {
     }
     createSchedule(schedule) {
         this.db
-            .prepare("INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json) VALUES (?, ?, ?, ?, ?, ?, ?)")
-            .run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.startTime, schedule.hoursPerDay, JSON.stringify(schedule.workingDays));
+            .prepare("INSERT INTO schedules (id, company_id, name, timezone, start_time, hours_per_day, working_days_json, max_time_off_days_per_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+            .run(schedule.id, schedule.companyId, schedule.name, schedule.timezone, schedule.startTime, schedule.hoursPerDay, JSON.stringify(schedule.workingDays), schedule.maxTimeOffDaysPerYear ?? null);
         return schedule;
     }
     updateSchedule(id, patch) {
@@ -565,9 +570,22 @@ class PayrollRepository {
             return null;
         const next = { ...current, ...patch, id };
         this.db
-            .prepare("UPDATE schedules SET company_id = ?, name = ?, timezone = ?, start_time = ?, hours_per_day = ?, working_days_json = ? WHERE id = ?")
-            .run(next.companyId, next.name, next.timezone, next.startTime, next.hoursPerDay, JSON.stringify(next.workingDays), id);
+            .prepare("UPDATE schedules SET company_id = ?, name = ?, timezone = ?, start_time = ?, hours_per_day = ?, working_days_json = ?, max_time_off_days_per_year = ? WHERE id = ?")
+            .run(next.companyId, next.name, next.timezone, next.startTime, next.hoursPerDay, JSON.stringify(next.workingDays), next.maxTimeOffDaysPerYear ?? null, id);
         return next;
+    }
+    countEmployeesByScheduleId(scheduleId) {
+        const row = this.db
+            .prepare("SELECT COUNT(*) as count FROM employees WHERE schedule_id = ?")
+            .get(scheduleId);
+        return row?.count ?? 0;
+    }
+    deleteSchedule(id) {
+        const current = this.getSchedule(id);
+        if (!current)
+            return false;
+        this.db.prepare("DELETE FROM schedules WHERE id = ?").run(id);
+        return true;
     }
     listEmployees(includeInactive = false) {
         const sql = includeInactive
@@ -727,6 +745,12 @@ class PayrollRepository {
          WHERE id = ?`)
             .run(next.companyId, next.onChainId, next.periodStart, next.periodEnd, next.status, next.totalAmountCents, next.executedAt, next.txHash, next.createdAt, next.updatedAt, id);
         return next;
+    }
+    deletePayRun(id) {
+        this.transaction(() => {
+            this.db.prepare("DELETE FROM pay_run_items WHERE pay_run_id = ?").run(id);
+            this.db.prepare("DELETE FROM pay_runs WHERE id = ?").run(id);
+        });
     }
     replacePayRunItems(payRunId, items) {
         this.transaction(() => {
@@ -897,9 +921,9 @@ class PayrollRepository {
     createTimeOffRequest(request) {
         this.db
             .prepare(`INSERT INTO time_off_requests (
-          id, company_id, employee_id, date, note, status, created_at, updated_at, reviewed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(request.id, request.companyId, request.employeeId, request.date, request.note, request.status, request.createdAt, request.updatedAt, request.reviewedAt);
+          id, company_id, employee_id, date, note, status, request_group_id, created_at, updated_at, reviewed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(request.id, request.companyId, request.employeeId, request.date, request.note, request.status, request.requestGroupId ?? null, request.createdAt, request.updatedAt, request.reviewedAt);
         return request;
     }
     updateTimeOffRequest(id, patch) {
@@ -909,10 +933,16 @@ class PayrollRepository {
         const next = { ...current, ...patch, id };
         this.db
             .prepare(`UPDATE time_off_requests
-         SET company_id = ?, employee_id = ?, date = ?, note = ?, status = ?, created_at = ?, updated_at = ?, reviewed_at = ?
+         SET company_id = ?, employee_id = ?, date = ?, note = ?, status = ?, request_group_id = ?, created_at = ?, updated_at = ?, reviewed_at = ?
          WHERE id = ?`)
-            .run(next.companyId, next.employeeId, next.date, next.note, next.status, next.createdAt, next.updatedAt, next.reviewedAt, id);
+            .run(next.companyId, next.employeeId, next.date, next.note, next.status, next.requestGroupId ?? null, next.createdAt, next.updatedAt, next.reviewedAt, id);
         return next;
+    }
+    listTimeOffRequestsByGroupId(groupId) {
+        const rows = this.db
+            .prepare("SELECT * FROM time_off_requests WHERE request_group_id = ? ORDER BY date ASC")
+            .all(groupId);
+        return rows.map(mapTimeOffRequest);
     }
 }
 exports.PayrollRepository = PayrollRepository;

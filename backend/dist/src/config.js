@@ -41,9 +41,11 @@ function loadConfig(env = process.env) {
             ? resolveWorkspacePath(env.BACKEND_DB_PATH)
             : defaultDbPath;
     const today = new Date().toISOString().slice(0, 10);
+    // Railway and most PaaS set PORT; bind to 0.0.0.0 so healthchecks can reach the app
+    const port = parseNumber(env.BACKEND_PORT ?? env.PORT, 3001);
     const config = {
-        host: env.BACKEND_HOST ?? "127.0.0.1",
-        port: parseNumber(env.BACKEND_PORT, 3001),
+        host: env.BACKEND_HOST ?? (env.PORT ? "0.0.0.0" : "127.0.0.1"),
+        port,
         corsOrigins: parseCorsOrigins(env.BACKEND_CORS_ORIGIN),
         dbPath,
         sessionTtlHours: parseNumber(env.BACKEND_SESSION_TTL_HOURS, 24),

@@ -622,8 +622,23 @@ export class PayrollService {
       maxTimeOffDaysPerYear: number | null;
     }>,
   ) {
-    const schedule = requireRecord(this.repository.updateSchedule(id, input), "Schedule not found.");
+    const patch: Partial<ScheduleRecord> = { ...input };
+    if (Object.prototype.hasOwnProperty.call(input, "maxTimeOffDaysPerYear")) {
+      patch.maxTimeOffDaysPerYear = input.maxTimeOffDaysPerYear ?? null;
+    }
+    const schedule = requireRecord(this.repository.updateSchedule(id, patch), "Schedule not found.");
     return toScheduleResponse(schedule);
+  }
+
+  deleteSchedule(id: string) {
+    const count = this.repository.countEmployeesByScheduleId(id);
+    if (count > 0) {
+      throw new Error(
+        `Cannot delete schedule: ${count} employee${count === 1 ? "" : "s"} assigned. Reassign them to another schedule first.`,
+      );
+    }
+    const deleted = this.repository.deleteSchedule(id);
+    if (!deleted) throw new Error("Schedule not found.");
   }
 
   listHolidays() {

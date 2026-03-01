@@ -407,6 +407,8 @@ export const api = {
       token,
       body: payload,
     }),
+  deleteSchedule: (token: string, id: string) =>
+    request<{ ok: true }>(`/schedules/${id}`, { method: "DELETE", token }),
   getHolidays: () => request<HolidayRecord[]>("/holidays"),
   createHoliday: (token: string, payload: { date: string; name: string }) =>
     request<HolidayRecord>("/holidays", {

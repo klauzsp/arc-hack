@@ -808,6 +808,20 @@ export class PayrollRepository {
     return next;
   }
 
+  countEmployeesByScheduleId(scheduleId: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) as count FROM employees WHERE schedule_id = ?")
+      .get(scheduleId) as { count: number };
+    return row?.count ?? 0;
+  }
+
+  deleteSchedule(id: string): boolean {
+    const current = this.getSchedule(id);
+    if (!current) return false;
+    this.db.prepare("DELETE FROM schedules WHERE id = ?").run(id);
+    return true;
+  }
+
   listEmployees(includeInactive = false) {
     const sql = includeInactive
       ? "SELECT * FROM employees ORDER BY name ASC"

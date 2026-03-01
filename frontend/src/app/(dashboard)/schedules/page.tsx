@@ -37,6 +37,7 @@ export default function SchedulesPage() {
     timeOffPolicy,
     createSchedule,
     updateSchedule,
+    deleteSchedule,
     updateTimeOffPolicy,
     loading,
     error,
@@ -47,6 +48,7 @@ export default function SchedulesPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (timeOffPolicy) {
@@ -101,6 +103,22 @@ export default function SchedulesPage() {
     workingDays: form.workingDays,
     maxTimeOffDaysPerYear: form.maxTimeOffDaysPerYear ?? null,
   });
+
+  const handleDelete = async (schedule: Schedule) => {
+    if (!confirm(`Delete schedule "${schedule.name}"? This cannot be undone.`)) return;
+    setDeletingId(schedule.id);
+    setMessage(null);
+    setActionError(null);
+    try {
+      await deleteSchedule(schedule.id);
+      if (editingId === schedule.id) resetForm();
+      setMessage("Schedule deleted.");
+    } catch (deleteError) {
+      setActionError(deleteError instanceof Error ? deleteError.message : "Failed to delete schedule.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -293,13 +311,24 @@ export default function SchedulesPage() {
                   <h3 className="text-sm font-semibold text-white">{schedule.name}</h3>
                   <p className="mt-1 text-xs text-white/50">{schedule.timezone}</p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openEdit(schedule)}
-                >
-                  Edit
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openEdit(schedule)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleDelete(schedule)}
+                    disabled={deletingId === schedule.id}
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/10 hover:border-red-500"
+                  >
+                    {deletingId === schedule.id ? "Deleting…" : "Delete"}
+                  </Button>
+                </div>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="rounded-xl bg-white/[0.04] px-4 py-3">

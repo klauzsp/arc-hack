@@ -29,6 +29,7 @@ function createSeedPayload(input) {
             startTime: "09:00",
             hoursPerDay: 8,
             workingDays: [1, 2, 3, 4, 5],
+            maxTimeOffDaysPerYear: null,
         },
         {
             id: "s-2",
@@ -38,6 +39,7 @@ function createSeedPayload(input) {
             startTime: "08:30",
             hoursPerDay: 7.5,
             workingDays: [1, 2, 3, 4, 5],
+            maxTimeOffDaysPerYear: null,
         },
     ];
     const holidays = [
